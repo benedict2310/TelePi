@@ -1,0 +1,14 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+
+# Environment / secrets
+.env
+
+# Runtime workspace (Docker mount)
+workspace/
+
+# macOS
+.DS_Store

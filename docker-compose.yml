@@ -1,0 +1,24 @@
+services:
+  telepi:
+    build: .
+    env_file: .env
+    volumes:
+      # Pi agent config (auth, settings) — read-only
+      - ${HOME}/.pi/agent/auth.json:/home/telepi/.pi/agent/auth.json:ro
+      - ${HOME}/.pi/agent/settings.json:/home/telepi/.pi/agent/settings.json:ro
+      # Sessions — read-write (bot appends to session files)
+      - ${HOME}/.pi/agent/sessions:/home/telepi/.pi/agent/sessions:rw
+      # Workspace — read-write, scoped working directory for the agent
+      - ./workspace:/workspace:rw
+    cap_drop:
+      - ALL
+    cap_add:
+      - NET_RAW
+    security_opt:
+      - no-new-privileges:true
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+          cpus: "2.0"
+    restart: unless-stopped
