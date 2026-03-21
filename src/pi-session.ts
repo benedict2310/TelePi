@@ -7,9 +7,11 @@ import {
   createCodingTools,
   ModelRegistry,
   SessionManager,
+  SettingsManager,
   type AgentSession,
   type SessionEntry,
 } from "@mariozechner/pi-coding-agent";
+import { resolveModelScope } from "../node_modules/@mariozechner/pi-coding-agent/dist/core/model-resolver.js";
 import type { Api, Model } from "@mariozechner/pi-ai";
 
 import type { TelePiConfig } from "./config.js";
@@ -91,14 +93,18 @@ export async function createPiSession(
   const sessionManager = createSessionManager(config, workspace, overrideSessionPath);
   const authStorage = AuthStorage.create();
   const modelRegistry = new ModelRegistry(authStorage);
+  const settingsManager = SettingsManager.create(workspace);
   const model = resolveModelOverride(modelRegistry, config.piModel);
+  const scopedModels = await resolveScopedModels(settingsManager, modelRegistry);
 
   const { session, modelFallbackMessage } = await createAgentSession({
     cwd: workspace,
     authStorage,
     modelRegistry,
     model,
+    scopedModels,
     sessionManager,
+    settingsManager,
     tools: createCodingTools(workspace),
   });
   patchBashTimeout(session);
@@ -115,14 +121,18 @@ async function createNewPiSession(config: TelePiConfig, workspace: string): Prom
   const sessionManager = SessionManager.create(workspace);
   const authStorage = AuthStorage.create();
   const modelRegistry = new ModelRegistry(authStorage);
+  const settingsManager = SettingsManager.create(workspace);
   const model = resolveModelOverride(modelRegistry, config.piModel);
+  const scopedModels = await resolveScopedModels(settingsManager, modelRegistry);
 
   const { session, modelFallbackMessage } = await createAgentSession({
     cwd: workspace,
     authStorage,
     modelRegistry,
     model,
+    scopedModels,
     sessionManager,
+    settingsManager,
     tools: createCodingTools(workspace),
   });
   patchBashTimeout(session);
@@ -296,11 +306,12 @@ export class PiSessionService {
     return { info: this.getInfo(), created };
   }
 
-  async listModels(): Promise<Array<{ provider: string; id: string; name: string; current: boolean }>> {
+  async listModels(showAll = false): Promise<Array<{ provider: string; id: string; name: string; current: boolean }>> {
     const session = this.getSession();
     const currentModel = session.model;
-    const modelRegistry = this.getModelRegistry();
-    const available = modelRegistry.getAvailable();
+    const available = showAll || session.scopedModels.length === 0
+      ? this.getModelRegistry().getAvailable()
+      : session.scopedModels.map((scoped) => scoped.model);
 
     return available.map((model) => ({
       provider: model.provider,
@@ -429,6 +440,18 @@ export class PiSessionService {
   private getModelRegistry(): ModelRegistry {
     return this.getHandle().modelRegistry;
   }
+}
+
+async function resolveScopedModels(
+  settingsManager: SettingsManager,
+  modelRegistry: ModelRegistry,
+): Promise<Awaited<ReturnType<typeof resolveModelScope>>> {
+  const modelPatterns = settingsManager.getEnabledModels();
+  if (!modelPatterns || modelPatterns.length === 0) {
+    return [];
+  }
+
+  return resolveModelScope(modelPatterns, modelRegistry);
 }
 
 function createSessionManager(

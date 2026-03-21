@@ -892,7 +892,79 @@ export function createBot(config: TelePiConfig, piSession: PiSessionService): Bo
     }
   });
 
-  bot.command("model", async (ctx) => {
+  const renderModelPicker = async (
+    chatId: number,
+    options?: { showAll?: boolean; messageId?: number },
+  ): Promise<void> => {
+    const showAll = options?.showAll ?? false;
+    const messageId = options?.messageId;
+    const models = await piSession.listModels(showAll);
+    if (models.length === 0) {
+      const message = "No models available.";
+      if (messageId) {
+        await safeEditMessage(bot, chatId, messageId, escapeHTML(message), { fallbackText: message });
+      } else {
+        await bot.api.sendMessage(chatId, escapeHTML(message), { parse_mode: "HTML" });
+      }
+      return;
+    }
+
+    pendingModelPicks.set(
+      chatId,
+      models.map((model) => ({ provider: model.provider, id: model.id })),
+    );
+
+    const modelButtons = models.map((model, index) => {
+      const prefix = model.current ? "✅ " : "";
+      const modelRef = `${model.provider}/${model.id}`;
+      const nameSuffix = model.name && model.name !== model.id ? ` · ${model.name}` : "";
+      return {
+        label: `${prefix}${modelRef}${nameSuffix}`,
+        callbackData: `model_${index}`,
+      };
+    });
+    pendingModelButtons.set(chatId, modelButtons);
+
+    const allModels = showAll ? models : await piSession.listModels(true);
+    const hasScopedSubset = !showAll && models.length > 0 && models.length < allModels.length;
+    const keyboard = buildKeyboard(
+      modelButtons,
+      0,
+      "model",
+      hasScopedSubset ? [{ label: "Show all models", callbackData: "model_show_all" }] : [],
+    );
+
+    const info = piSession.getInfo();
+    const currentModelText = info.model ? `Current: ${info.model}` : "No model selected";
+    const scopeHint = hasScopedSubset
+      ? "Showing the current Pi model scope."
+      : undefined;
+    const html = [
+      "<b>Select a model</b>",
+      escapeHTML(currentModelText),
+      scopeHint ? `<i>${escapeHTML(scopeHint)}</i>` : undefined,
+    ]
+      .filter((line): line is string => Boolean(line))
+      .join("\n");
+    const fallbackText = ["Select a model", currentModelText, scopeHint]
+      .filter((line): line is string => Boolean(line))
+      .join("\n");
+
+    if (messageId) {
+      await safeEditMessage(bot, chatId, messageId, html, {
+        fallbackText,
+        replyMarkup: keyboard,
+      });
+      return;
+    }
+
+    await bot.api.sendMessage(chatId, html, {
+      parse_mode: "HTML",
+      reply_markup: keyboard,
+    });
+  };
+
+  const showModelPicker = async (ctx: Context): Promise<void> => {
     const chatId = ctx.chat?.id;
     if (!chatId) {
       return;
@@ -909,32 +981,11 @@ export function createBot(config: TelePiConfig, piSession: PiSessionService): Bo
       }
     }
 
-    const models = await piSession.listModels();
-    if (models.length === 0) {
-      await safeReply(ctx, escapeHTML("No models available."), {
-        fallbackText: "No models available.",
-      });
-      return;
-    }
+    await renderModelPicker(chatId);
+  };
 
-    pendingModelPicks.set(
-      chatId,
-      models.map((model) => ({ provider: model.provider, id: model.id })),
-    );
-
-    const modelButtons = models.map((model, index) => ({
-      label: `${model.current ? "✅ " : ""}${model.name}`,
-      callbackData: `model_${index}`,
-    }));
-    pendingModelButtons.set(chatId, modelButtons);
-
-    const info = piSession.getInfo();
-    const currentModelText = info.model ? `Current: ${info.model}` : "No model selected";
-
-    await safeReply(ctx, `<b>Select a model</b>\n${escapeHTML(currentModelText)}`, {
-      fallbackText: `Select a model\n${currentModelText}`,
-      replyMarkup: buildKeyboard(modelButtons, 0, "model"),
-    });
+  bot.command("model", async (ctx) => {
+    await showModelPicker(ctx);
   });
 
   bot.command("tree", async (ctx) => {
@@ -1245,6 +1296,23 @@ export function createBot(config: TelePiConfig, piSession: PiSessionService): Bo
     } finally {
       isSwitching = false;
     }
+  });
+
+  bot.callbackQuery("model_show_all", async (ctx) => {
+    const chatId = ctx.chat?.id;
+    const messageId = ctx.callbackQuery.message?.message_id;
+
+    if (!chatId || !messageId) {
+      return;
+    }
+
+    if (isBusy()) {
+      await ctx.answerCallbackQuery({ text: "Wait for the current prompt to finish" });
+      return;
+    }
+
+    await ctx.answerCallbackQuery({ text: "Loading all models..." });
+    await renderModelPicker(chatId, { showAll: true, messageId });
   });
 
   bot.callbackQuery(/^model_(\d+)$/, async (ctx) => {

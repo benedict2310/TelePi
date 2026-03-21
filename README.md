@@ -59,7 +59,7 @@ TelePi is a Telegram bridge for the [Pi coding agent](https://github.com/badlogi
 | `/session` | Show current session details (ID, file, workspace, model) |
 | `/sessions` | List all sessions across all workspaces with tap-to-switch buttons |
 | `/sessions <path>` | Switch directly to a specific session file |
-| `/model` | Pick a different AI model from an inline keyboard |
+| `/model` | Pick an AI model from the current Pi model scope, with an option to show all available models |
 | `/tree` | View the session entry tree; navigate with inline buttons |
 | `/branch <id>` | Navigate to a specific entry ID (with confirmation) |
 | `/label [args]` | Add or clear labels on entries for easy reference |

@@ -42,6 +42,7 @@ const mockState = vi.hoisted(() => {
       sessionFile: options.sessionFile ?? `/tmp/session-${sessionCounter}.jsonl`,
       sessionName: options.sessionName,
       model: options.model ?? models[0],
+      scopedModels: options.scopedModels ?? [],
       isStreaming: false,
       agent: {
         state: {
@@ -96,6 +97,7 @@ const mockState = vi.hoisted(() => {
   const createAgentSession = vi.fn().mockImplementation(async (options: any) => ({
     session: createSession({
       model: options.model,
+      scopedModels: options.scopedModels,
       sessionFile: options.sessionManager?.sessionPath,
     }),
     modelFallbackMessage: options.model ? undefined : "fallback-model",
@@ -125,6 +127,20 @@ const mockState = vi.hoisted(() => {
     listAll: vi.fn().mockResolvedValue(defaultSessions()),
   };
 
+  const SettingsManager = {
+    create: vi.fn().mockImplementation(() => ({
+      getEnabledModels: vi.fn().mockReturnValue(undefined),
+    })),
+  };
+
+  const resolveModelScope = vi.fn().mockImplementation(async (patterns: string[]) =>
+    patterns.map((pattern) => {
+      const [provider, id] = pattern.split("/");
+      const model = models.find((candidate) => candidate.provider === provider && candidate.id === id);
+      return { model: model ?? models[0] };
+    }),
+  );
+
   return {
     models,
     createdSessions,
@@ -134,6 +150,8 @@ const mockState = vi.hoisted(() => {
     AuthStorage,
     ModelRegistry,
     SessionManager,
+    SettingsManager,
+    resolveModelScope,
     getSubscriber: (session: object) => sessionSubscribers.get(session),
     reset: () => {
       sessionCounter = 0;
@@ -147,6 +165,8 @@ const mockState = vi.hoisted(() => {
       SessionManager.open.mockClear();
       SessionManager.listAll.mockReset();
       SessionManager.listAll.mockResolvedValue(defaultSessions());
+      SettingsManager.create.mockClear();
+      resolveModelScope.mockClear();
     },
   };
 });
@@ -157,6 +177,11 @@ vi.mock("@mariozechner/pi-coding-agent", () => ({
   AuthStorage: mockState.AuthStorage,
   ModelRegistry: mockState.ModelRegistry,
   SessionManager: mockState.SessionManager,
+  SettingsManager: mockState.SettingsManager,
+}));
+
+vi.mock("../node_modules/@mariozechner/pi-coding-agent/dist/core/model-resolver.js", () => ({
+  resolveModelScope: mockState.resolveModelScope,
 }));
 
 import { PiSessionService } from "../src/pi-session.js";
@@ -182,12 +207,14 @@ describe("PiSessionService", () => {
 
     expect(mockState.AuthStorage.create).toHaveBeenCalledTimes(1);
     expect(mockState.ModelRegistry).toHaveBeenCalledTimes(1);
+    expect(mockState.SettingsManager.create).toHaveBeenCalledWith("/workspace/base");
     expect(mockState.createCodingTools).toHaveBeenCalledWith("/workspace/base");
     expect(mockState.createAgentSession).toHaveBeenCalledWith(
       expect.objectContaining({
         cwd: "/workspace/base",
         tools: ["mock-tool"],
         model: undefined,
+        scopedModels: [],
       }),
     );
 
@@ -411,6 +438,62 @@ describe("PiSessionService", () => {
         current: false,
       },
     ]);
+  });
+
+  it("lists only scoped models when the session has a model scope", async () => {
+    const service = await PiSessionService.create(createConfig());
+    const currentSession = mockState.createdSessions[0]?.session;
+
+    currentSession.scopedModels = [{ model: mockState.models[1] }];
+
+    await expect(service.listModels()).resolves.toEqual([
+      {
+        provider: "openai",
+        id: "gpt-4o",
+        name: "GPT-4o",
+        current: false,
+      },
+    ]);
+  });
+
+  it("can list all models even when a scope is active", async () => {
+    const service = await PiSessionService.create(createConfig());
+    const currentSession = mockState.createdSessions[0]?.session;
+
+    currentSession.scopedModels = [{ model: mockState.models[1] }];
+
+    await expect(service.listModels(true)).resolves.toEqual([
+      {
+        provider: "anthropic",
+        id: "claude-sonnet-4-5",
+        name: "Claude Sonnet",
+        current: true,
+      },
+      {
+        provider: "openai",
+        id: "gpt-4o",
+        name: "GPT-4o",
+        current: false,
+      },
+    ]);
+  });
+
+  it("derives scoped models from pi settings when enabled models are configured", async () => {
+    mockState.SettingsManager.create.mockReturnValueOnce({
+      getEnabledModels: vi.fn().mockReturnValue(["openai/gpt-4o"]),
+    });
+
+    await PiSessionService.create(createConfig());
+
+    expect(mockState.resolveModelScope).toHaveBeenCalledWith(
+      ["openai/gpt-4o"],
+      expect.anything(),
+    );
+    expect(mockState.createAgentSession).toHaveBeenCalledWith(
+      expect.objectContaining({
+        scopedModels: [{ model: mockState.models[1] }],
+      }),
+    );
   });
 
   it("switches models via the underlying session", async () => {

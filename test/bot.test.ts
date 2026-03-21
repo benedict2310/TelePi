@@ -385,12 +385,27 @@ function getReplyMarkupData(api: ReturnType<typeof setupBot>["api"], callIndex =
   return markup?.inline_keyboard?.flat().map((button: any) => button.callback_data) ?? [];
 }
 
+function getReplyMarkupTexts(api: ReturnType<typeof setupBot>["api"], callIndex = 0): string[] {
+  const markup = api.sendMessage.mock.calls[callIndex]?.[2]?.reply_markup;
+  return markup?.inline_keyboard?.flat().map((button: any) => button.text) ?? [];
+}
+
 function getReplyMarkupButtons(
   api: ReturnType<typeof setupBot>["api"],
   callIndex = 0,
 ): Array<{ text: string; callback_data: string }> {
   const markup = api.sendMessage.mock.calls[callIndex]?.[2]?.reply_markup;
   return markup?.inline_keyboard?.flat() ?? [];
+}
+
+function getEditedReplyMarkupData(api: ReturnType<typeof setupBot>["api"], callIndex = 0): string[] {
+  const markup = api.editMessageText.mock.calls[callIndex]?.[3]?.reply_markup;
+  return markup?.inline_keyboard?.flat().map((button: any) => button.callback_data) ?? [];
+}
+
+function getEditedReplyMarkupTexts(api: ReturnType<typeof setupBot>["api"], callIndex = 0): string[] {
+  const markup = api.editMessageText.mock.calls[callIndex]?.[3]?.reply_markup;
+  return markup?.inline_keyboard?.flat().map((button: any) => button.text) ?? [];
 }
 
 function getEditedReplyMarkupButtons(
@@ -742,16 +757,59 @@ describe("createBot", () => {
     await pending;
   });
 
-  it("shows the model picker and handles model selection callbacks", async () => {
-    const { bot, pi, api } = setupBot();
+  it("shows scoped models by default, can expand to all models, and handles model selection", async () => {
+    const scopedModels = [
+      {
+        provider: "github-copilot",
+        id: "codex",
+        name: "Codex",
+        current: true,
+      },
+    ];
+    const allModels = [
+      {
+        provider: "openai",
+        id: "codex",
+        name: "Codex",
+        current: false,
+      },
+      ...scopedModels,
+    ];
+    const listModels = vi.fn().mockImplementation((showAll?: boolean) =>
+      Promise.resolve(showAll ? allModels : scopedModels),
+    );
+
+    const { bot, pi, api } = setupBot({
+      piSessionOverrides: {
+        listModels,
+        setModel: vi.fn().mockResolvedValue("openai/codex"),
+      },
+    });
 
     await bot.handleUpdate(createTestUpdate({ message: { text: "/model" } }));
     expect(api.sendMessage.mock.calls[0]?.[1]).toContain("Select a model");
-    expect(getReplyMarkupData(api)).toEqual(["model_0", "model_1"]);
+    expect(api.sendMessage.mock.calls[0]?.[1]).toContain("Showing the current Pi model scope.");
+    expect(getReplyMarkupData(api)).toEqual(["model_0", "model_show_all"]);
+    expect(getReplyMarkupTexts(api)).toEqual([
+      "✅ github-copilot/codex · Codex",
+      "Show all models",
+    ]);
+    expect(listModels).toHaveBeenNthCalledWith(1, false);
+    expect(listModels).toHaveBeenNthCalledWith(2, true);
 
-    await bot.handleUpdate(createCallbackUpdate("model_1"));
+    await bot.handleUpdate(createCallbackUpdate("model_show_all"));
+    expect(api.answerCallbackQuery).toHaveBeenCalledWith("cb_1", { text: "Loading all models..." });
+    expect(api.editMessageText).toHaveBeenCalled();
+    expect(listModels).toHaveBeenNthCalledWith(3, true);
+    expect(getEditedReplyMarkupData(api, 0)).toEqual(["model_0", "model_1"]);
+    expect(getEditedReplyMarkupTexts(api, 0)).toEqual([
+      "openai/codex · Codex",
+      "✅ github-copilot/codex · Codex",
+    ]);
+
+    await bot.handleUpdate(createCallbackUpdate("model_0"));
     expect(api.answerCallbackQuery).toHaveBeenCalledWith("cb_1", { text: "Switching model..." });
-    expect(pi.service.setModel).toHaveBeenCalledWith("openai", "gpt-4o");
+    expect(pi.service.setModel).toHaveBeenCalledWith("openai", "codex");
     expect(api.editMessageText).toHaveBeenCalled();
   });
 
