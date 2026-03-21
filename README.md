@@ -38,6 +38,11 @@ TelePi is a Telegram bridge for the [Pi coding agent](https://github.com/badlogi
    npm run dev
    ```
 
+4. Optional: build TelePi for `launchd`:
+   ```bash
+   npm run build
+   ```
+
 ## Telegram Commands
 
 | Command | Description |
@@ -60,7 +65,7 @@ TelePi supports seamless bi-directional session hand-off between Pi CLI and Tele
 You're working in Pi CLI on your laptop and want to continue from your phone:
 
 1. **In Pi CLI**, type `/handoff`
-2. The extension kills any running TelePi instance, launches TelePi with your current session, and shuts down Pi CLI
+2. The extension opens your current session in TelePi and shuts down Pi CLI
 3. **Open Telegram** — TelePi is already running with your full conversation context. Just keep typing.
 
 **Extension installation** — symlink into Pi's global extensions directory:
@@ -72,11 +77,41 @@ ln -s "$(pwd)/extensions/telepi-handoff.ts" ~/.pi/agent/extensions/telepi-handof
 
 Pi auto-discovers it after symlinking (or run `/reload` in Pi).
 
+The extension supports two hand-off modes, controlled via shell environment variables:
+
+- `TELEPI_HANDOFF_MODE=direct` *(default)* — old behavior: kill the current TelePi dev process and start a new one with `npx tsx src/index.ts`
+- `TELEPI_HANDOFF_MODE=launchd` — set `PI_SESSION_PATH` in the `launchd` user environment and restart a LaunchAgent
+- `TELEPI_LAUNCHD_LABEL` *(optional, default: `com.telepi`)* — LaunchAgent label to restart in `launchd` mode
+
+#### Direct mode
+
 Set `TELEPI_DIR` in your shell profile to point to your TelePi installation:
 
 ```bash
+export TELEPI_HANDOFF_MODE=direct
 export TELEPI_DIR="/path/to/TelePi"
 ```
+
+#### launchd mode (recommended on macOS)
+
+1. Build TelePi:
+   ```bash
+   npm run build
+   ```
+2. Copy `launchd/com.telepi.plist` to `~/Library/LaunchAgents/com.telepi.plist`
+3. Replace the placeholder paths with your real TelePi path, Node path, and log file locations
+4. Load it:
+   ```bash
+   launchctl bootstrap gui/$UID ~/Library/LaunchAgents/com.telepi.plist
+   launchctl kickstart -k gui/$UID/com.telepi
+   ```
+5. Export the hand-off settings in your shell profile:
+   ```bash
+   export TELEPI_HANDOFF_MODE=launchd
+   export TELEPI_LAUNCHD_LABEL=com.telepi
+   ```
+
+In `launchd` mode, `/handoff` only does two things: set `PI_SESSION_PATH` in `launchd`, then restart the configured LaunchAgent. That keeps TelePi to a single bot process and avoids Telegram token conflicts.
 
 ### Telegram → CLI (`/handback`)
 
@@ -132,6 +167,8 @@ Sessions are stored under `~/.pi/agent/sessions/--<encoded-workspace-path>--/`.
 TelePi/
 ├── extensions/
 │   └── telepi-handoff.ts        ← Pi CLI extension (git-tracked)
+├── launchd/
+│   └── com.telepi.plist
 ├── src/
 │   ├── index.ts                 ← entry point
 │   ├── bot.ts                   ← Telegram bot (Grammy)
@@ -170,7 +207,7 @@ The compose file:
 
 - Only Telegram user IDs in `TELEGRAM_ALLOWED_USER_IDS` can interact with the bot
 - Pi tools are scoped to the workspace via `createCodingTools(workspace)` and re-scoped on session switch
-- The `/handoff` extension only shuts down Pi CLI if TelePi launches successfully
+- The `/handoff` extension only shuts down Pi CLI if TelePi launches or restarts successfully
 - URL sanitization blocks `javascript:` and other unsafe protocols in formatted output
 - Shell commands in `/handback` use `spawnSync` (no shell interpretation) for clipboard copy
 
