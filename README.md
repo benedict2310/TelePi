@@ -43,7 +43,7 @@ TelePi is a Telegram bridge for the [Pi coding agent](https://github.com/badlogi
    npm run dev
    ```
 
-4. Optional: build TelePi for `launchd`:
+4. Optional — required if using launchd mode: build TelePi:
    ```bash
    npm run build
    ```
@@ -170,10 +170,9 @@ The extension supports two hand-off modes, controlled via shell environment vari
 
 #### Direct mode
 
-Set `TELEPI_DIR` in your shell profile to point to your TelePi installation:
+Set `TELEPI_DIR` in your shell profile to point to your TelePi installation (`TELEPI_HANDOFF_MODE=direct` is the default and does not need to be set explicitly):
 
 ```bash
-export TELEPI_HANDOFF_MODE=direct
 export TELEPI_DIR="/path/to/TelePi"
 ```
 
@@ -184,7 +183,7 @@ export TELEPI_DIR="/path/to/TelePi"
    npm run build
    ```
 2. Copy `launchd/com.telepi.plist` to `~/Library/LaunchAgents/com.telepi.plist`
-3. Replace the placeholder paths with your real TelePi path, Node path, and log file locations
+3. Replace the placeholder paths with your real TelePi path, Node path, and log file locations. Also ensure a `.env` file with `TELEGRAM_BOT_TOKEN` and `TELEGRAM_ALLOWED_USER_IDS` is present in the `WorkingDirectory` (TelePi loads it from `process.cwd()` at startup — see `.env.example`)
 4. Load it:
    ```bash
    launchctl bootstrap gui/$UID ~/Library/LaunchAgents/com.telepi.plist
@@ -197,6 +196,10 @@ export TELEPI_DIR="/path/to/TelePi"
    ```
 
 In `launchd` mode, `/handoff` only does two things: set `PI_SESSION_PATH` in `launchd`, then restart the configured LaunchAgent. That keeps TelePi to a single bot process and avoids Telegram token conflicts.
+
+> **Note:** `launchctl setenv` does not persist across reboots. After a machine restart, `PI_SESSION_PATH` will be cleared and TelePi will start a fresh in-memory session until the next `/handoff`.
+
+> **Note:** Because `KeepAlive` is set in the plist, launchd will automatically restart TelePi if it exits. To fully stop TelePi, unload the agent: `launchctl bootout gui/$UID/com.telepi`.
 
 ### Telegram → CLI (`/handback`)
 

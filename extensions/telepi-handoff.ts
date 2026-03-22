@@ -52,7 +52,7 @@ export default function (pi: ExtensionAPI) {
         );
 
         try {
-          await pi.exec(
+          const result = await pi.exec(
             "bash",
             [
               "-lc",
@@ -64,8 +64,17 @@ launchctl kickstart -k "gui/$UID/$label"`,
             { timeout: 5000 },
           );
 
-          ctx.ui.notify(`TelePi restarted via launchd job ${launchdLabel}. Check Telegram!`, "success");
-          launched = true;
+          if (result.code === 0) {
+            ctx.ui.notify(`TelePi restarted via launchd job ${launchdLabel}. Check Telegram!`, "success");
+            launched = true;
+          } else {
+            ctx.ui.notify(
+              "Could not restart TelePi via launchd. Verify the LaunchAgent is loaded and try manually:\n" +
+              `launchctl setenv PI_SESSION_PATH "${sessionFile}"\n` +
+              `launchctl kickstart -k gui/$UID/${launchdLabel}`,
+              "warning",
+            );
+          }
         } catch {
           ctx.ui.notify(
             "Could not restart TelePi via launchd. Verify the LaunchAgent is loaded and try manually:\n" +
