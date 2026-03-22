@@ -24,9 +24,16 @@ const TYPING_INTERVAL_MS = 4500;
 const TOOL_OUTPUT_PREVIEW_LIMIT = 500;
 const STREAMING_PREVIEW_LIMIT = 3800;
 const FORMATTED_CHUNK_TARGET = 3000;
+const KEYBOARD_PAGE_SIZE = 6;
+const NOOP_PAGE_CALLBACK_DATA = "noop_page";
 
 type TelegramChatId = number | string;
 type TelegramParseMode = "HTML";
+type KeyboardItem = { label: string; callbackData: string };
+
+interface PaginatedKeyboard {
+  keyboard: InlineKeyboard;
+}
 
 type ToolState = {
   toolName: string;
@@ -51,6 +58,50 @@ type RenderedChunk = RenderedText & {
   sourceText: string;
 };
 
+function paginateKeyboard(items: KeyboardItem[], page: number, prefix: string): PaginatedKeyboard {
+  const totalPages = Math.max(1, Math.ceil(items.length / KEYBOARD_PAGE_SIZE));
+  const safePage = Math.max(0, Math.min(page, totalPages - 1));
+  const start = safePage * KEYBOARD_PAGE_SIZE;
+  const pageItems = items.slice(start, start + KEYBOARD_PAGE_SIZE);
+
+  const keyboard = new InlineKeyboard();
+  for (const item of pageItems) {
+    keyboard.text(item.label, item.callbackData).row();
+  }
+
+  if (totalPages > 1) {
+    if (safePage > 0) {
+      keyboard.text("◀️ Prev", `${prefix}_page_${safePage - 1}`);
+    }
+    keyboard.text(`${safePage + 1}/${totalPages}`, NOOP_PAGE_CALLBACK_DATA);
+    if (safePage < totalPages - 1) {
+      keyboard.text("Next ▶️", `${prefix}_page_${safePage + 1}`);
+    }
+    keyboard.row();
+  }
+
+  return {
+    keyboard,
+  };
+}
+
+function appendKeyboardItems(keyboard: InlineKeyboard, items: KeyboardItem[]): InlineKeyboard {
+  for (const item of items) {
+    keyboard.text(item.label, item.callbackData).row();
+  }
+
+  return keyboard;
+}
+
+function splitTreeKeyboardItems(buttons: KeyboardItem[]): {
+  navButtons: KeyboardItem[];
+  filterButtons: KeyboardItem[];
+} {
+  const navButtons = buttons.filter((button) => button.callbackData.startsWith("tree_nav_"));
+  const filterButtons = buttons.filter((button) => !button.callbackData.startsWith("tree_nav_"));
+  return { navButtons, filterButtons };
+}
+
 export function createBot(config: TelePiConfig, piSession: PiSessionService): Bot<Context> {
   const bot = new Bot<Context>(config.telegramBotToken);
   bot.api.config.use(autoRetry({ maxRetryAttempts: 3, maxDelaySeconds: 10 }));
@@ -59,9 +110,72 @@ export function createBot(config: TelePiConfig, piSession: PiSessionService): Bo
   let isSwitching = false;
   let isTranscribing = false;
   const pendingSessionPicks = new Map<number, Array<{ path: string; cwd: string }>>();
+  const pendingSessionButtons = new Map<number, KeyboardItem[]>();
   const pendingWorkspacePicks = new Map<number, string[]>();
+  const pendingWorkspaceButtons = new Map<number, KeyboardItem[]>();
   const pendingModelPicks = new Map<number, Array<{ provider: string; id: string }>>();
+  const pendingModelButtons = new Map<number, KeyboardItem[]>();
   const pendingTreeNavs = new Map<number, string>();
+  const pendingTreeButtons = new Map<number, KeyboardItem[]>();
+  const pendingTreeFilterButtons = new Map<number, KeyboardItem[]>();
+  const pendingBranchButtons = new Map<number, KeyboardItem[]>();
+
+  const buildKeyboard = (
+    items: KeyboardItem[],
+    page: number,
+    prefix: string,
+    extraItems: KeyboardItem[] = [],
+  ): InlineKeyboard => {
+    const { keyboard } = paginateKeyboard(items, page, prefix);
+    return appendKeyboardItems(keyboard, extraItems);
+  };
+
+  const setPendingTreeKeyboard = (chatId: number, buttons: KeyboardItem[]): InlineKeyboard => {
+    const { navButtons, filterButtons } = splitTreeKeyboardItems(buttons);
+    pendingTreeButtons.set(chatId, navButtons);
+    pendingTreeFilterButtons.set(chatId, filterButtons);
+    return buildKeyboard(navButtons, 0, "tree", filterButtons);
+  };
+
+  const clearPendingTreeKeyboard = (chatId: number): void => {
+    pendingTreeButtons.delete(chatId);
+    pendingTreeFilterButtons.delete(chatId);
+  };
+
+  const handlePageCallback = (
+    pattern: RegExp,
+    prefix: string,
+    buttonsMap: Map<number, KeyboardItem[]>,
+    expiredMessage: string,
+    extraButtonsMap?: Map<number, KeyboardItem[]>,
+  ): void => {
+    bot.callbackQuery(pattern, async (ctx) => {
+      const chatId = ctx.chat?.id;
+      const messageId = ctx.callbackQuery.message?.message_id;
+      const page = Number.parseInt(ctx.match?.[1] ?? "", 10);
+
+      if (!chatId || !messageId || Number.isNaN(page)) {
+        return;
+      }
+
+      const buttons = buttonsMap.get(chatId);
+      if (!buttons) {
+        await ctx.answerCallbackQuery({ text: expiredMessage });
+        return;
+      }
+
+      await ctx.answerCallbackQuery();
+
+      try {
+        const keyboard = buildKeyboard(buttons, page, prefix, extraButtonsMap?.get(chatId) ?? []);
+        await bot.api.editMessageReplyMarkup(chatId, messageId, { reply_markup: keyboard });
+      } catch (error) {
+        if (!isMessageNotModifiedError(error)) {
+          console.error(`Failed to update ${prefix} keyboard page`, error);
+        }
+      }
+    });
+  };
 
   bot.use(async (ctx, next) => {
     const fromId = ctx.from?.id;
@@ -572,7 +686,7 @@ export function createBot(config: TelePiConfig, piSession: PiSessionService): Bo
     }
 
     // No argument — show session picker
-    const allSessions = (await piSession.listAllSessions()).slice(0, 15);
+    const allSessions = await piSession.listAllSessions();
     if (allSessions.length === 0) {
       await safeReply(ctx, escapeHTML("No saved sessions found."), {
         fallbackText: "No saved sessions found.",
@@ -589,10 +703,9 @@ export function createBot(config: TelePiConfig, piSession: PiSessionService): Bo
       grouped.get(workspace)?.push(session);
     }
 
-    const keyboard = new InlineKeyboard();
     const textLines: string[] = [];
-    // Build the pick list in display order (grouped by workspace) so indices match buttons
     const orderedPicks: Array<{ path: string; cwd: string }> = [];
+    const sessionButtons: KeyboardItem[] = [];
 
     for (const [workspace, sessions] of grouped) {
       const shortWorkspace = getWorkspaceShortName(workspace);
@@ -604,15 +717,19 @@ export function createBot(config: TelePiConfig, piSession: PiSessionService): Bo
       for (const session of sessions) {
         const idx = orderedPicks.length;
         const label = trimLine(session.name || session.firstMessage, 35) || `Session ${idx + 1}`;
-        const buttonLabel = `📁 ${shortWorkspace.slice(0, 8)} · ${label.slice(0, 30)}`;
-        keyboard.text(buttonLabel, `switch_${idx}`).row();
+        sessionButtons.push({
+          label: `📁 ${shortWorkspace.slice(0, 8)} · ${label.slice(0, 30)}`,
+          callbackData: `switch_${idx}`,
+        });
         textLines.push(`  ${idx + 1}. ${label} (${session.messageCount} msgs)`);
         orderedPicks.push({ path: session.path, cwd: session.cwd });
       }
     }
 
     pendingSessionPicks.set(chatId, orderedPicks);
+    pendingSessionButtons.set(chatId, sessionButtons);
 
+    const keyboard = buildKeyboard(sessionButtons, 0, "switch");
     const plainText = [
       `Available sessions (${allSessions.length} shown):`,
       "",
@@ -671,18 +788,20 @@ export function createBot(config: TelePiConfig, piSession: PiSessionService): Bo
     }
 
     pendingWorkspacePicks.set(chatId, workspaces);
-    const keyboard = new InlineKeyboard();
     const currentWorkspace = piSession.getCurrentWorkspace();
-
-    for (const [index, workspace] of workspaces.entries()) {
+    const workspaceButtons = workspaces.map((workspace, index) => {
       const shortName = getWorkspaceShortName(workspace);
       const prefix = workspace === currentWorkspace ? "📂 " : "📁 ";
-      keyboard.text(`${prefix}${shortName}`, `newws_${index}`).row();
-    }
+      return {
+        label: `${prefix}${shortName}`,
+        callbackData: `newws_${index}`,
+      };
+    });
+    pendingWorkspaceButtons.set(chatId, workspaceButtons);
 
     await safeReply(ctx, "<b>Select workspace for new session:</b>", {
       fallbackText: "Select workspace for new session:",
-      replyMarkup: keyboard,
+      replyMarkup: buildKeyboard(workspaceButtons, 0, "newws"),
     });
   });
 
@@ -790,7 +909,7 @@ export function createBot(config: TelePiConfig, piSession: PiSessionService): Bo
       }
     }
 
-    const models = (await piSession.listModels()).slice(0, 20);
+    const models = await piSession.listModels();
     if (models.length === 0) {
       await safeReply(ctx, escapeHTML("No models available."), {
         fallbackText: "No models available.",
@@ -803,19 +922,18 @@ export function createBot(config: TelePiConfig, piSession: PiSessionService): Bo
       models.map((model) => ({ provider: model.provider, id: model.id })),
     );
 
-    const keyboard = new InlineKeyboard();
-    for (const [index, model] of models.entries()) {
-      const prefix = model.current ? "✅ " : "";
-      const label = `${prefix}${model.name}`;
-      keyboard.text(label, `model_${index}`).row();
-    }
+    const modelButtons = models.map((model, index) => ({
+      label: `${model.current ? "✅ " : ""}${model.name}`,
+      callbackData: `model_${index}`,
+    }));
+    pendingModelButtons.set(chatId, modelButtons);
 
     const info = piSession.getInfo();
     const currentModelText = info.model ? `Current: ${info.model}` : "No model selected";
 
     await safeReply(ctx, `<b>Select a model</b>\n${escapeHTML(currentModelText)}`, {
       fallbackText: `Select a model\n${currentModelText}`,
-      replyMarkup: keyboard,
+      replyMarkup: buildKeyboard(modelButtons, 0, "model"),
     });
   });
 
@@ -853,14 +971,12 @@ export function createBot(config: TelePiConfig, piSession: PiSessionService): Bo
     const result = renderTree(tree, leafId, { mode });
 
     if (result.buttons.length === 0) {
+      clearPendingTreeKeyboard(chatId);
       await safeReply(ctx, result.text, { fallbackText: stripHtml(result.text) });
       return;
     }
 
-    const keyboard = new InlineKeyboard();
-    for (const button of result.buttons) {
-      keyboard.text(button.label, button.callbackData).row();
-    }
+    const keyboard = setPendingTreeKeyboard(chatId, result.buttons);
 
     await safeReply(ctx, result.text, {
       fallbackText: stripHtml(result.text),
@@ -915,15 +1031,11 @@ export function createBot(config: TelePiConfig, piSession: PiSessionService): Bo
     const confirmation = renderBranchConfirmation(entry, children, leafId, collectLabelsMap());
 
     pendingTreeNavs.set(chatId, entry.id);
-
-    const keyboard = new InlineKeyboard();
-    for (const button of confirmation.buttons) {
-      keyboard.text(button.label, button.callbackData).row();
-    }
+    pendingBranchButtons.set(chatId, confirmation.buttons);
 
     await safeReply(ctx, confirmation.text, {
       fallbackText: stripHtml(confirmation.text),
-      replyMarkup: keyboard,
+      replyMarkup: buildKeyboard(confirmation.buttons, 0, "branch"),
     });
   });
 
@@ -1013,6 +1125,22 @@ export function createBot(config: TelePiConfig, piSession: PiSessionService): Bo
     await piSession.abort();
   });
 
+  bot.callbackQuery(NOOP_PAGE_CALLBACK_DATA, async (ctx) => {
+    await ctx.answerCallbackQuery();
+  });
+
+  handlePageCallback(/^switch_page_(\d+)$/, "switch", pendingSessionButtons, "Expired, run /sessions again");
+  handlePageCallback(/^newws_page_(\d+)$/, "newws", pendingWorkspaceButtons, "Expired, run /new again");
+  handlePageCallback(/^model_page_(\d+)$/, "model", pendingModelButtons, "Expired, run /model again");
+  handlePageCallback(
+    /^tree_page_(\d+)$/,
+    "tree",
+    pendingTreeButtons,
+    "Expired, run /tree again",
+    pendingTreeFilterButtons,
+  );
+  handlePageCallback(/^branch_page_(\d+)$/, "branch", pendingBranchButtons, "Expired, run /branch again");
+
   bot.callbackQuery(/^switch_(\d+)$/, async (ctx) => {
     const chatId = ctx.chat?.id;
     const messageId = ctx.callbackQuery.message?.message_id;
@@ -1035,6 +1163,7 @@ export function createBot(config: TelePiConfig, piSession: PiSessionService): Bo
 
     await ctx.answerCallbackQuery({ text: "Switching..." });
     pendingSessionPicks.delete(chatId);
+    pendingSessionButtons.delete(chatId);
 
     isSwitching = true;
     try {
@@ -1083,6 +1212,7 @@ export function createBot(config: TelePiConfig, piSession: PiSessionService): Bo
 
     await ctx.answerCallbackQuery({ text: "Creating session..." });
     pendingWorkspacePicks.delete(chatId);
+    pendingWorkspaceButtons.delete(chatId);
 
     isSwitching = true;
     try {
@@ -1139,6 +1269,7 @@ export function createBot(config: TelePiConfig, piSession: PiSessionService): Bo
 
     await ctx.answerCallbackQuery({ text: "Switching model..." });
     pendingModelPicks.delete(chatId);
+    pendingModelButtons.delete(chatId);
 
     isSwitching = true;
     try {
@@ -1202,11 +1333,9 @@ export function createBot(config: TelePiConfig, piSession: PiSessionService): Bo
       collectLabelsMap(),
     );
     pendingTreeNavs.set(chatId, entry.id);
+    pendingBranchButtons.set(chatId, confirmation.buttons);
 
-    const keyboard = new InlineKeyboard();
-    for (const button of confirmation.buttons) {
-      keyboard.text(button.label, button.callbackData).row();
-    }
+    const keyboard = buildKeyboard(confirmation.buttons, 0, "branch");
 
     if (messageId) {
       await safeEditMessage(bot, chatId, messageId, confirmation.text, {
@@ -1242,6 +1371,9 @@ export function createBot(config: TelePiConfig, piSession: PiSessionService): Bo
 
     await ctx.answerCallbackQuery({ text: "Navigating..." });
     pendingTreeNavs.delete(chatId);
+    pendingBranchButtons.delete(chatId);
+    pendingTreeButtons.delete(chatId);
+    pendingTreeFilterButtons.delete(chatId);
 
     isSwitching = true;
     try {
@@ -1304,6 +1436,9 @@ export function createBot(config: TelePiConfig, piSession: PiSessionService): Bo
 
     await ctx.answerCallbackQuery({ text: "Navigating with summary..." });
     pendingTreeNavs.delete(chatId);
+    pendingBranchButtons.delete(chatId);
+    pendingTreeButtons.delete(chatId);
+    pendingTreeFilterButtons.delete(chatId);
 
     isSwitching = true;
     try {
@@ -1349,6 +1484,9 @@ export function createBot(config: TelePiConfig, piSession: PiSessionService): Bo
     const chatId = ctx.chat?.id;
     if (chatId) {
       pendingTreeNavs.delete(chatId);
+      pendingBranchButtons.delete(chatId);
+      pendingTreeButtons.delete(chatId);
+      pendingTreeFilterButtons.delete(chatId);
     }
     await ctx.answerCallbackQuery({ text: "Cancelled" });
     const messageId = ctx.callbackQuery.message?.message_id;
@@ -1382,15 +1520,15 @@ export function createBot(config: TelePiConfig, piSession: PiSessionService): Bo
     }
 
     const result = renderTree(piSession.getTree(), piSession.getLeafId(), { mode: filterMode });
+    const keyboard = result.buttons.length > 0 ? setPendingTreeKeyboard(chatId, result.buttons) : undefined;
 
-    const keyboard = new InlineKeyboard();
-    for (const button of result.buttons) {
-      keyboard.text(button.label, button.callbackData).row();
+    if (!keyboard) {
+      clearPendingTreeKeyboard(chatId);
     }
 
     await safeEditMessage(bot, chatId, messageId, result.text, {
       fallbackText: stripHtml(result.text),
-      replyMarkup: result.buttons.length > 0 ? keyboard : undefined,
+      replyMarkup: keyboard,
     });
   });
 

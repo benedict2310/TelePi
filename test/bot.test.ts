@@ -385,6 +385,62 @@ function getReplyMarkupData(api: ReturnType<typeof setupBot>["api"], callIndex =
   return markup?.inline_keyboard?.flat().map((button: any) => button.callback_data) ?? [];
 }
 
+function getReplyMarkupButtons(
+  api: ReturnType<typeof setupBot>["api"],
+  callIndex = 0,
+): Array<{ text: string; callback_data: string }> {
+  const markup = api.sendMessage.mock.calls[callIndex]?.[2]?.reply_markup;
+  return markup?.inline_keyboard?.flat() ?? [];
+}
+
+function getEditedReplyMarkupButtons(
+  api: ReturnType<typeof setupBot>["api"],
+  callIndex = 0,
+): Array<{ text: string; callback_data: string }> {
+  const markup = api.editMessageReplyMarkup.mock.calls[callIndex]?.[2]?.reply_markup;
+  return markup?.inline_keyboard?.flat() ?? [];
+}
+
+function generateMockSessions(count: number) {
+  return Array.from({ length: count }, (_, i) => ({
+    id: `s${i}`,
+    firstMessage: `Session ${i}`,
+    path: `/s${i}.jsonl`,
+    messageCount: i + 1,
+    cwd: `/workspace/${i % 2 === 0 ? "A" : "B"}`,
+    modified: new Date(`2025-01-${String((count - i) % 28 || 28).padStart(2, "0")}T00:00:00.000Z`),
+    name: undefined,
+  }));
+}
+
+function generateMockModels(count: number) {
+  return Array.from({ length: count }, (_, i) => ({
+    provider: `provider${i}`,
+    id: `model-${i}`,
+    name: `Model ${i}`,
+    current: i === 0,
+  }));
+}
+
+function generateMockWorkspaces(count: number): string[] {
+  return Array.from({ length: count }, (_, i) => `/workspace/W${i}`);
+}
+
+function generatePagedTree(totalEntries: number) {
+  const makeBranch = (index: number) =>
+    makeMessageTreeNode(`node${index.toString().padStart(4, "0")}`, "user", `Tree node ${index}`, "root0000");
+
+  return [
+    makeMessageTreeNode(
+      "root0000",
+      "user",
+      "Root",
+      null,
+      Array.from({ length: totalEntries - 1 }, (_, i) => makeBranch(i + 1)),
+    ),
+  ];
+}
+
 describe("createBot", () => {
   beforeEach(() => {
     vi.restoreAllMocks();
@@ -494,6 +550,42 @@ describe("createBot", () => {
     expect(getReplyMarkupData(api)).toEqual(["switch_0", "switch_1"]);
   });
 
+  it("paginates session pickers and keeps selections working across pages", async () => {
+    const sessions = generateMockSessions(8).map((session) => ({ ...session, cwd: "/workspace/A" }));
+    const { bot, pi, api } = setupBot({
+      piSessionOverrides: {
+        listAllSessions: vi.fn().mockResolvedValue(sessions),
+      },
+    });
+
+    await bot.handleUpdate(createTestUpdate({ message: { text: "/sessions" } }));
+
+    expect(getReplyMarkupData(api)).toEqual([
+      "switch_0",
+      "switch_1",
+      "switch_2",
+      "switch_3",
+      "switch_4",
+      "switch_5",
+      "noop_page",
+      "switch_page_1",
+    ]);
+    expect(getReplyMarkupButtons(api).at(-2)?.text).toBe("1/2");
+    expect(getReplyMarkupButtons(api).at(-1)?.text).toBe("Next ▶️");
+
+    await bot.handleUpdate(createCallbackUpdate("switch_page_1"));
+    expect(api.answerCallbackQuery).toHaveBeenCalledWith("cb_1", { text: undefined });
+    expect(getEditedReplyMarkupButtons(api).map((button) => button.callback_data)).toEqual([
+      "switch_6",
+      "switch_7",
+      "switch_page_0",
+      "noop_page",
+    ]);
+
+    await bot.handleUpdate(createCallbackUpdate("switch_7"));
+    expect(pi.service.switchSession).toHaveBeenCalledWith("/s7.jsonl", "/workspace/A");
+  });
+
   it("switches directly via /sessions <path> and shows errors when switching fails", async () => {
     const ok = setupBot();
     await ok.bot.handleUpdate(createTestUpdate({ message: { text: "/sessions /saved/session.jsonl" } }));
@@ -581,6 +673,38 @@ describe("createBot", () => {
     expect(api.editMessageText).toHaveBeenCalled();
   });
 
+  it("paginates workspace pickers and creates the selected workspace session", async () => {
+    const workspaces = generateMockWorkspaces(8);
+    const { bot, pi, api } = setupBot({
+      piSessionOverrides: {
+        listWorkspaces: vi.fn().mockResolvedValue(workspaces),
+      },
+    });
+
+    await bot.handleUpdate(createTestUpdate({ message: { text: "/new" } }));
+    expect(getReplyMarkupData(api)).toEqual([
+      "newws_0",
+      "newws_1",
+      "newws_2",
+      "newws_3",
+      "newws_4",
+      "newws_5",
+      "noop_page",
+      "newws_page_1",
+    ]);
+
+    await bot.handleUpdate(createCallbackUpdate("newws_page_1"));
+    expect(getEditedReplyMarkupButtons(api).map((button) => button.callback_data)).toEqual([
+      "newws_6",
+      "newws_7",
+      "newws_page_0",
+      "noop_page",
+    ]);
+
+    await bot.handleUpdate(createCallbackUpdate("newws_7"));
+    expect(pi.service.newSession).toHaveBeenCalledWith("/workspace/W7");
+  });
+
   it("handles /handback and blocks it when unavailable or busy", async () => {
     const ok = setupBot();
     await ok.bot.handleUpdate(createTestUpdate({ message: { text: "/handback" } }));
@@ -631,6 +755,39 @@ describe("createBot", () => {
     expect(api.editMessageText).toHaveBeenCalled();
   });
 
+  it("paginates model pickers across all available models", async () => {
+    const models = generateMockModels(21);
+    const { bot, pi, api } = setupBot({
+      piSessionOverrides: {
+        listModels: vi.fn().mockResolvedValue(models),
+      },
+    });
+
+    await bot.handleUpdate(createTestUpdate({ message: { text: "/model" } }));
+    expect(getReplyMarkupData(api)).toEqual([
+      "model_0",
+      "model_1",
+      "model_2",
+      "model_3",
+      "model_4",
+      "model_5",
+      "noop_page",
+      "model_page_1",
+    ]);
+
+    await bot.handleUpdate(createCallbackUpdate("model_page_3"));
+    expect(getEditedReplyMarkupButtons(api).map((button) => button.callback_data)).toEqual([
+      "model_18",
+      "model_19",
+      "model_20",
+      "model_page_2",
+      "noop_page",
+    ]);
+
+    await bot.handleUpdate(createCallbackUpdate("model_20"));
+    expect(pi.service.setModel).toHaveBeenCalledWith("provider20", "model-20");
+  });
+
   it("handles /tree command variants and missing sessions", async () => {
     const empty = setupBot({
       piSessionOverrides: {
@@ -661,6 +818,39 @@ describe("createBot", () => {
     });
     await noActive.bot.handleUpdate(createTestUpdate({ message: { text: "/tree" } }));
     expect(noActive.api.sendMessage.mock.calls[0]?.[1]).toContain("No active session");
+  });
+
+  it("paginates tree navigation buttons while keeping filter buttons visible", async () => {
+    const tree = generatePagedTree(8);
+    const { bot, api } = setupBot({
+      piSessionOverrides: {
+        getTree: vi.fn().mockReturnValue(tree),
+        getLeafId: vi.fn().mockReturnValue("node0001"),
+      },
+    });
+
+    await bot.handleUpdate(createTestUpdate({ message: { text: "/tree" } }));
+    expect(getReplyMarkupData(api)).toEqual([
+      "tree_nav_root0000",
+      "tree_nav_node0002",
+      "tree_nav_node0003",
+      "tree_nav_node0004",
+      "tree_nav_node0005",
+      "tree_nav_node0006",
+      "noop_page",
+      "tree_page_1",
+      "tree_mode_all",
+      "tree_mode_user",
+    ]);
+
+    await bot.handleUpdate(createCallbackUpdate("tree_page_1"));
+    expect(getEditedReplyMarkupButtons(api).map((button) => button.callback_data)).toEqual([
+      "tree_nav_node0007",
+      "tree_page_0",
+      "noop_page",
+      "tree_mode_all",
+      "tree_mode_user",
+    ]);
   });
 
   it("handles /branch command success and validation", async () => {
@@ -1057,6 +1247,48 @@ describe("createBot", () => {
     });
     await noModels.bot.handleUpdate(createTestUpdate({ message: { text: "/model" } }));
     expect(noModels.api.sendMessage.mock.calls[0]?.[1]).toContain("No models available.");
+  });
+
+  it("expires page callbacks when the original picker state is gone", async () => {
+    const { bot, api } = setupBot();
+
+    await bot.handleUpdate(createCallbackUpdate("switch_page_1"));
+    expect(api.answerCallbackQuery).toHaveBeenCalledWith("cb_1", {
+      text: "Expired, run /sessions again",
+    });
+
+    api.answerCallbackQuery.mockClear();
+    await bot.handleUpdate(createCallbackUpdate("newws_page_1"));
+    expect(api.answerCallbackQuery).toHaveBeenCalledWith("cb_1", {
+      text: "Expired, run /new again",
+    });
+
+    api.answerCallbackQuery.mockClear();
+    await bot.handleUpdate(createCallbackUpdate("model_page_1"));
+    expect(api.answerCallbackQuery).toHaveBeenCalledWith("cb_1", {
+      text: "Expired, run /model again",
+    });
+
+    api.answerCallbackQuery.mockClear();
+    await bot.handleUpdate(createCallbackUpdate("tree_page_1"));
+    expect(api.answerCallbackQuery).toHaveBeenCalledWith("cb_1", {
+      text: "Expired, run /tree again",
+    });
+
+    api.answerCallbackQuery.mockClear();
+    await bot.handleUpdate(createCallbackUpdate("branch_page_1"));
+    expect(api.answerCallbackQuery).toHaveBeenCalledWith("cb_1", {
+      text: "Expired, run /branch again",
+    });
+  });
+
+  it("handles noop_page callback without editing the message", async () => {
+    const { bot, api } = setupBot();
+
+    await bot.handleUpdate(createCallbackUpdate("noop_page"));
+    expect(api.answerCallbackQuery).toHaveBeenCalledWith("cb_1", {});
+    expect(api.editMessageText).not.toHaveBeenCalled();
+    expect(api.editMessageReplyMarkup).not.toHaveBeenCalled();
   });
 
   it("handles callback edge cases and the abort button", async () => {
