@@ -99,18 +99,27 @@ export async function createPiSession(
   overrideWorkspace?: string,
 ): Promise<PiSessionHandle> {
   const workspace = overrideWorkspace ?? config.workspace;
+  const sessionPath = overrideSessionPath ?? config.piSessionPath;
   const sessionManager = createSessionManager(config, workspace, overrideSessionPath);
   const authStorage = AuthStorage.create();
   const modelRegistry = new ModelRegistry(authStorage);
   const settingsManager = SettingsManager.create(workspace);
-  const model = resolveModelOverride(modelRegistry, config.piModel);
+  const configuredModel = resolveModelOverride(modelRegistry, config.piModel);
   const scopedModels = await resolveScopedModels(settingsManager, modelRegistry);
+  const { model, thinkingLevel } = resolveInitialModelSelection({
+    configuredModel,
+    scopedModels,
+    settingsManager,
+    modelRegistry,
+    hasExistingSession: Boolean(sessionPath),
+  });
 
   const { session, modelFallbackMessage } = await createAgentSession({
     cwd: workspace,
     authStorage,
     modelRegistry,
     model,
+    thinkingLevel,
     scopedModels,
     sessionManager,
     settingsManager,
@@ -131,14 +140,22 @@ async function createNewPiSession(config: TelePiConfig, workspace: string): Prom
   const authStorage = AuthStorage.create();
   const modelRegistry = new ModelRegistry(authStorage);
   const settingsManager = SettingsManager.create(workspace);
-  const model = resolveModelOverride(modelRegistry, config.piModel);
+  const configuredModel = resolveModelOverride(modelRegistry, config.piModel);
   const scopedModels = await resolveScopedModels(settingsManager, modelRegistry);
+  const { model, thinkingLevel } = resolveInitialModelSelection({
+    configuredModel,
+    scopedModels,
+    settingsManager,
+    modelRegistry,
+    hasExistingSession: false,
+  });
 
   const { session, modelFallbackMessage } = await createAgentSession({
     cwd: workspace,
     authStorage,
     modelRegistry,
     model,
+    thinkingLevel,
     scopedModels,
     sessionManager,
     settingsManager,
@@ -472,6 +489,36 @@ async function resolveScopedModels(
   }
 
   return resolveModelScope(modelPatterns, modelRegistry);
+}
+
+function resolveInitialModelSelection(options: {
+  configuredModel: Model<Api> | undefined;
+  scopedModels: Awaited<ReturnType<typeof resolveModelScope>>;
+  settingsManager: SettingsManager;
+  modelRegistry: ModelRegistry;
+  hasExistingSession: boolean;
+}): { model: Model<Api> | undefined; thinkingLevel: ThinkingLevel | undefined } {
+  const { configuredModel, scopedModels, settingsManager, modelRegistry, hasExistingSession } = options;
+
+  if (configuredModel || hasExistingSession || scopedModels.length === 0) {
+    return { model: configuredModel, thinkingLevel: undefined };
+  }
+
+  const defaultProvider = settingsManager.getDefaultProvider();
+  const defaultModelId = settingsManager.getDefaultModel();
+  const defaultModel = defaultProvider && defaultModelId
+    ? modelRegistry.find(defaultProvider, defaultModelId)
+    : undefined;
+
+  const selectedScopedModel = defaultModel
+    ? scopedModels.find((scoped) => scoped.model.provider === defaultModel.provider && scoped.model.id === defaultModel.id)
+    : undefined;
+  const fallbackScopedModel = selectedScopedModel ?? scopedModels[0];
+
+  return {
+    model: fallbackScopedModel?.model,
+    thinkingLevel: fallbackScopedModel?.thinkingLevel,
+  };
 }
 
 function createSessionManager(

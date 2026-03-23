@@ -1402,6 +1402,12 @@ describe("createBot", () => {
     });
 
     api.answerCallbackQuery.mockClear();
+    await bot.handleUpdate(createCallbackUpdate("model_show_all"));
+    expect(api.answerCallbackQuery).toHaveBeenCalledWith("cb_1", {
+      text: "Expired, run /model again",
+    });
+
+    api.answerCallbackQuery.mockClear();
     await bot.handleUpdate(createCallbackUpdate("tree_page_1"));
     expect(api.answerCallbackQuery).toHaveBeenCalledWith("cb_1", {
       text: "Expired, run /tree again",

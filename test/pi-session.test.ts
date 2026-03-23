@@ -101,6 +101,7 @@ const mockState = vi.hoisted(() => {
   const createAgentSession = vi.fn().mockImplementation(async (options: any) => ({
     session: createSession({
       model: options.model,
+      thinkingLevel: options.thinkingLevel,
       scopedModels: options.scopedModels,
       sessionFile: options.sessionManager?.sessionPath,
     }),
@@ -134,6 +135,8 @@ const mockState = vi.hoisted(() => {
   const SettingsManager = {
     create: vi.fn().mockImplementation(() => ({
       getEnabledModels: vi.fn().mockReturnValue(undefined),
+      getDefaultProvider: vi.fn().mockReturnValue(undefined),
+      getDefaultModel: vi.fn().mockReturnValue(undefined),
     })),
   };
 
@@ -490,6 +493,8 @@ describe("PiSessionService", () => {
   it("derives scoped models from pi settings when enabled models are configured", async () => {
     mockState.SettingsManager.create.mockReturnValueOnce({
       getEnabledModels: vi.fn().mockReturnValue(["openai/gpt-4o"]),
+      getDefaultProvider: vi.fn().mockReturnValue(undefined),
+      getDefaultModel: vi.fn().mockReturnValue(undefined),
     });
 
     await PiSessionService.create(createConfig());
@@ -501,6 +506,65 @@ describe("PiSessionService", () => {
     expect(mockState.createAgentSession).toHaveBeenCalledWith(
       expect.objectContaining({
         scopedModels: [{ model: mockState.models[1] }],
+      }),
+    );
+  });
+
+  it("starts a new session on the first scoped model when no explicit model is configured", async () => {
+    mockState.SettingsManager.create.mockReturnValueOnce({
+      getEnabledModels: vi.fn().mockReturnValue(["openai/gpt-4o"]),
+      getDefaultProvider: vi.fn().mockReturnValue(undefined),
+      getDefaultModel: vi.fn().mockReturnValue(undefined),
+    });
+    mockState.resolveModelScope.mockResolvedValueOnce([{ model: mockState.models[1], thinkingLevel: "high" }]);
+
+    await PiSessionService.create(createConfig());
+
+    expect(mockState.createAgentSession).toHaveBeenCalledWith(
+      expect.objectContaining({
+        model: mockState.models[1],
+        thinkingLevel: "high",
+        scopedModels: [{ model: mockState.models[1], thinkingLevel: "high" }],
+      }),
+    );
+  });
+
+  it("prefers the saved default model when it is within the scoped model set", async () => {
+    mockState.SettingsManager.create.mockReturnValueOnce({
+      getEnabledModels: vi.fn().mockReturnValue(["anthropic/claude-sonnet-4-5", "openai/gpt-4o"]),
+      getDefaultProvider: vi.fn().mockReturnValue("openai"),
+      getDefaultModel: vi.fn().mockReturnValue("gpt-4o"),
+    });
+    mockState.resolveModelScope.mockResolvedValueOnce([
+      { model: mockState.models[0] },
+      { model: mockState.models[1], thinkingLevel: "high" },
+    ]);
+
+    await PiSessionService.create(createConfig());
+
+    expect(mockState.createAgentSession).toHaveBeenCalledWith(
+      expect.objectContaining({
+        model: mockState.models[1],
+        thinkingLevel: "high",
+      }),
+    );
+  });
+
+  it("does not override the model when opening an existing session file", async () => {
+    mockState.SettingsManager.create.mockReturnValueOnce({
+      getEnabledModels: vi.fn().mockReturnValue(["openai/gpt-4o"]),
+      getDefaultProvider: vi.fn().mockReturnValue(undefined),
+      getDefaultModel: vi.fn().mockReturnValue(undefined),
+    });
+    mockState.resolveModelScope.mockResolvedValueOnce([{ model: mockState.models[1], thinkingLevel: "high" }]);
+
+    await PiSessionService.create(createConfig({ piSessionPath: "/sessions/existing.jsonl" }));
+
+    expect(mockState.createAgentSession).toHaveBeenCalledWith(
+      expect.objectContaining({
+        model: undefined,
+        thinkingLevel: undefined,
+        scopedModels: [{ model: mockState.models[1], thinkingLevel: "high" }],
       }),
     );
   });

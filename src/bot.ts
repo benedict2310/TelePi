@@ -1310,6 +1310,12 @@ export function createBot(config: TelePiConfig, piSession: PiSessionService): Bo
       return;
     }
 
+    const models = pendingModelPicks.get(chatId);
+    if (!models || models.length === 0) {
+      await ctx.answerCallbackQuery({ text: "Expired, run /model again" });
+      return;
+    }
+
     if (isBusy()) {
       await ctx.answerCallbackQuery({ text: "Wait for the current prompt to finish" });
       return;
