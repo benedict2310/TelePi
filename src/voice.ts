@@ -1,15 +1,16 @@
 import { spawn } from "node:child_process";
+import { existsSync } from "node:fs";
+import { readFile } from "node:fs/promises";
 import { createRequire } from "node:module";
 import path from "node:path";
-import { readFile } from "node:fs/promises";
 
 export interface TranscriptionResult {
   text: string;
-  backend: "parakeet" | "openai";
+  backend: "parakeet" | "sherpa-onnx" | "openai";
   durationMs: number;
 }
 
-export type TranscriptionBackend = "parakeet" | "openai";
+export type TranscriptionBackend = "parakeet" | "sherpa-onnx" | "openai";
 
 // Minimal interface for the parakeet-coreml engine instance.
 interface ParakeetEngine {
@@ -17,15 +18,50 @@ interface ParakeetEngine {
   transcribe(samples: Float32Array): Promise<unknown>;
 }
 
+interface SherpaOfflineRecognizer {
+  createStream(): SherpaOfflineStream;
+  decode(stream: SherpaOfflineStream): void;
+  getResult(stream: SherpaOfflineStream): unknown;
+  free?: () => void;
+}
+
+interface SherpaOfflineStream {
+  acceptWaveform(input: { sampleRate: number; samples: Float32Array }): void;
+  free?: () => void;
+}
+
+interface SherpaRecognizerConstructor {
+  new (config: unknown): SherpaOfflineRecognizer;
+}
+
+interface SherpaConfig {
+  encoder: string;
+  decoder: string;
+  joiner: string;
+  tokens: string;
+  numThreads: number;
+}
+
 const PARAKEET_SPECIFIER = "parakeet-coreml";
+const SHERPA_ONNX_SPECIFIER = "sherpa-onnx-node";
+const SHERPA_ONNX_MODEL_DIR_ENV = "SHERPA_ONNX_MODEL_DIR";
+const SHERPA_ONNX_NUM_THREADS_ENV = "SHERPA_ONNX_NUM_THREADS";
+const SHERPA_MODEL_DOCS_URL =
+  "https://k2-fsa.github.io/sherpa/onnx/pretrained_models/offline-transducer/nemo-transducer-models.html";
 const FFMPEG_INSTALL_MESSAGE = "ffmpeg not found. Install it with: brew install ffmpeg";
 const NO_BACKEND_ERROR = `Voice messages require a transcription backend.
 
-Option 1: Install Parakeet for local transcription (free, private, ~1.5GB download):
+Option 1: Install Parakeet CoreML for local transcription on Apple Silicon (free, private, ~1.5GB download):
   npm install parakeet-coreml
 Also requires ffmpeg: brew install ffmpeg
 
-Option 2: Set OPENAI_API_KEY for cloud transcription (~$0.006/min):
+Option 2: Install Sherpa-ONNX for local/offline Parakeet transcription on Intel-based Macs, where parakeet-coreml is not supported (also works on Apple Silicon):
+  npm install sherpa-onnx-node
+  Download the Intel Mac-friendly Parakeet model from:
+    ${SHERPA_MODEL_DOCS_URL}
+  Set ${SHERPA_ONNX_MODEL_DIR_ENV}=/path/to/sherpa-onnx-nemo-parakeet-tdt-0.6b-v3-int8
+
+Option 3: Set OPENAI_API_KEY for cloud transcription (~$0.006/min):
   Add OPENAI_API_KEY=sk-... to your .env file`;
 
 const _require = createRequire(import.meta.url);
@@ -57,6 +93,18 @@ export async function transcribeAudio(filePath: string): Promise<TranscriptionRe
     }
   }
 
+  const sherpaConfig = resolveSherpaConfig();
+  if (sherpaConfig) {
+    try {
+      const sherpaMod = await _importModule(SHERPA_ONNX_SPECIFIER);
+      return await transcribeWithSherpaOnnx(filePath, sherpaMod, sherpaConfig);
+    } catch (error) {
+      if (!isModuleNotFoundError(error, SHERPA_ONNX_SPECIFIER)) {
+        throw error;
+      }
+    }
+  }
+
   if (hasOpenAIApiKey()) {
     return await transcribeWithOpenAI(filePath);
   }
@@ -72,6 +120,15 @@ export async function getAvailableBackends(): Promise<TranscriptionBackend[]> {
     backends.push("parakeet");
   } catch {
     // Treat import failures as unavailable so /start can still work.
+  }
+
+  if (resolveSherpaConfig()) {
+    try {
+      await _importModule(SHERPA_ONNX_SPECIFIER);
+      backends.push("sherpa-onnx");
+    } catch {
+      // Treat import failures as unavailable so /start can still work.
+    }
   }
 
   if (hasOpenAIApiKey()) {
@@ -127,6 +184,61 @@ async function transcribeWithParakeet(filePath: string, parakeetMod: unknown): P
   };
 }
 
+async function transcribeWithSherpaOnnx(
+  filePath: string,
+  sherpaMod: unknown,
+  config: SherpaConfig,
+): Promise<TranscriptionResult> {
+  const startedAt = Date.now();
+  const samples = await _decodeAudio(filePath);
+  const OfflineRecognizer = resolveSherpaRecognizerConstructor(sherpaMod);
+
+  if (typeof OfflineRecognizer !== "function") {
+    throw new Error("sherpa-onnx-node was loaded but does not expose an OfflineRecognizer class");
+  }
+
+  const recognizer = new OfflineRecognizer({
+    featConfig: {
+      sampleRate: 16000,
+      featureDim: 80,
+    },
+    modelConfig: {
+      transducer: {
+        encoder: config.encoder,
+        decoder: config.decoder,
+        joiner: config.joiner,
+      },
+      tokens: config.tokens,
+      numThreads: config.numThreads,
+      provider: "cpu",
+      debug: 0,
+      modelType: "nemo_transducer",
+    },
+  });
+
+  const stream = recognizer.createStream();
+
+  try {
+    stream.acceptWaveform({ sampleRate: 16000, samples });
+    recognizer.decode(stream);
+    const result = recognizer.getResult(stream);
+    const text = extractTranscribedText(result);
+
+    if (text === undefined) {
+      throw new Error("sherpa-onnx-node returned an unsupported transcription result");
+    }
+
+    return {
+      text,
+      backend: "sherpa-onnx",
+      durationMs: Date.now() - startedAt,
+    };
+  } finally {
+    stream.free?.();
+    recognizer.free?.();
+  }
+}
+
 async function transcribeWithOpenAI(filePath: string): Promise<TranscriptionResult> {
   const apiKey = process.env.OPENAI_API_KEY?.trim();
   if (!apiKey) {
@@ -171,6 +283,49 @@ async function transcribeWithOpenAI(filePath: string): Promise<TranscriptionResu
     backend: "openai",
     durationMs: Date.now() - startedAt,
   };
+}
+
+function resolveSherpaRecognizerConstructor(sherpaMod: unknown): SherpaRecognizerConstructor | undefined {
+  const mod = sherpaMod as Record<string, unknown> | null;
+  return (mod?.OfflineRecognizer as SherpaRecognizerConstructor | undefined) ??
+    ((mod?.default as Record<string, unknown> | undefined)?.OfflineRecognizer as
+      | SherpaRecognizerConstructor
+      | undefined);
+}
+
+function resolveSherpaConfig(): SherpaConfig | undefined {
+  const modelDirRaw = process.env[SHERPA_ONNX_MODEL_DIR_ENV]?.trim();
+  if (!modelDirRaw) {
+    return undefined;
+  }
+
+  const modelDir = path.resolve(modelDirRaw);
+  const encoder = path.join(modelDir, "encoder.int8.onnx");
+  const decoder = path.join(modelDir, "decoder.int8.onnx");
+  const joiner = path.join(modelDir, "joiner.int8.onnx");
+  const tokens = path.join(modelDir, "tokens.txt");
+
+  if (![encoder, decoder, joiner, tokens].every((file) => existsSync(file))) {
+    return undefined;
+  }
+
+  return {
+    encoder,
+    decoder,
+    joiner,
+    tokens,
+    numThreads: parseSherpaThreadCount(process.env[SHERPA_ONNX_NUM_THREADS_ENV]),
+  };
+}
+
+function parseSherpaThreadCount(raw: string | undefined): number {
+  const trimmed = raw?.trim();
+  if (!trimmed) {
+    return 2;
+  }
+
+  const parsed = Number.parseInt(trimmed, 10);
+  return Number.isInteger(parsed) && parsed > 0 ? parsed : 2;
 }
 
 function decodeAudioToSamples(filePath: string): Promise<Float32Array> {

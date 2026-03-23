@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -13,14 +13,36 @@ import {
 
 describe("voice transcription", () => {
   const originalOpenAIKey = process.env.OPENAI_API_KEY;
+  const originalSherpaModelDir = process.env.SHERPA_ONNX_MODEL_DIR;
+  const originalSherpaNumThreads = process.env.SHERPA_ONNX_NUM_THREADS;
+
   let tempDir: string;
   let audioPath: string;
+  let sherpaModelDir: string;
+
+  const moduleNotFound = (specifier: string): Error & { code?: string } => {
+    const error = new Error(`Cannot find package '${specifier}'`) as Error & { code?: string };
+    error.code = "ERR_MODULE_NOT_FOUND";
+    return error;
+  };
+
+  const createSherpaModel = (): void => {
+    mkdirSync(sherpaModelDir, { recursive: true });
+    writeFileSync(path.join(sherpaModelDir, "encoder.int8.onnx"), "encoder");
+    writeFileSync(path.join(sherpaModelDir, "decoder.int8.onnx"), "decoder");
+    writeFileSync(path.join(sherpaModelDir, "joiner.int8.onnx"), "joiner");
+    writeFileSync(path.join(sherpaModelDir, "tokens.txt"), "tokens");
+    process.env.SHERPA_ONNX_MODEL_DIR = sherpaModelDir;
+  };
 
   beforeEach(() => {
     tempDir = mkdtempSync(path.join(tmpdir(), "telepi-voice-"));
     audioPath = path.join(tempDir, "sample.ogg");
+    sherpaModelDir = path.join(tempDir, "sherpa-model");
     writeFileSync(audioPath, Buffer.from("audio"));
     delete process.env.OPENAI_API_KEY;
+    delete process.env.SHERPA_ONNX_MODEL_DIR;
+    delete process.env.SHERPA_ONNX_NUM_THREADS;
     _resetImportHook();
     vi.unstubAllGlobals();
   });
@@ -29,10 +51,23 @@ describe("voice transcription", () => {
     _resetImportHook();
     vi.unstubAllGlobals();
     rmSync(tempDir, { recursive: true, force: true });
+
     if (originalOpenAIKey === undefined) {
       delete process.env.OPENAI_API_KEY;
     } else {
       process.env.OPENAI_API_KEY = originalOpenAIKey;
+    }
+
+    if (originalSherpaModelDir === undefined) {
+      delete process.env.SHERPA_ONNX_MODEL_DIR;
+    } else {
+      process.env.SHERPA_ONNX_MODEL_DIR = originalSherpaModelDir;
+    }
+
+    if (originalSherpaNumThreads === undefined) {
+      delete process.env.SHERPA_ONNX_NUM_THREADS;
+    } else {
+      process.env.SHERPA_ONNX_NUM_THREADS = originalSherpaNumThreads;
     }
   });
 
@@ -61,11 +96,79 @@ describe("voice transcription", () => {
     expect(result.durationMs).toBe(5);
   });
 
-  it("falls back to OpenAI when parakeet is unavailable", async () => {
-    _setImportHook(async () => {
-      const error = new Error("Cannot find package 'parakeet-coreml'") as Error & { code?: string };
-      error.code = "ERR_MODULE_NOT_FOUND";
-      throw error;
+  it("falls back to sherpa-onnx when parakeet is unavailable", async () => {
+    createSherpaModel();
+    process.env.SHERPA_ONNX_NUM_THREADS = "4";
+    _setDecodeHook(async () => new Float32Array([0.1, 0.2, 0.3]));
+    _setImportHook(async (specifier) => {
+      if (specifier === "parakeet-coreml") {
+        throw moduleNotFound("parakeet-coreml");
+      }
+
+      if (specifier === "sherpa-onnx-node") {
+        return {
+          OfflineRecognizer: class {
+            constructor(config: any) {
+              expect(config).toMatchObject({
+                featConfig: { sampleRate: 16000, featureDim: 80 },
+                modelConfig: {
+                  tokens: path.join(sherpaModelDir, "tokens.txt"),
+                  numThreads: 4,
+                  provider: "cpu",
+                  modelType: "nemo_transducer",
+                  transducer: {
+                    encoder: path.join(sherpaModelDir, "encoder.int8.onnx"),
+                    decoder: path.join(sherpaModelDir, "decoder.int8.onnx"),
+                    joiner: path.join(sherpaModelDir, "joiner.int8.onnx"),
+                  },
+                },
+              });
+            }
+
+            createStream() {
+              return {
+                acceptWaveform: vi.fn((input: { sampleRate: number; samples: Float32Array }) => {
+                  expect(input.sampleRate).toBe(16000);
+                  const roundedSamples = Array.from(input.samples).map((value) => Number(value.toFixed(3)));
+                  expect(roundedSamples).toEqual([0.1, 0.2, 0.3]);
+                }),
+                free: vi.fn(),
+              };
+            }
+
+            decode(): void {}
+
+            getResult(): { text: string } {
+              return { text: "local sherpa transcript" };
+            }
+
+            free(): void {}
+          },
+        };
+      }
+
+      throw new Error(`unexpected import: ${specifier}`);
+    });
+
+    const result = await transcribeAudio(audioPath);
+
+    expect(result.text).toBe("local sherpa transcript");
+    expect(result.backend).toBe("sherpa-onnx");
+    expect(result.durationMs).toBeGreaterThanOrEqual(0);
+  });
+
+  it("falls back to OpenAI when parakeet and sherpa are unavailable", async () => {
+    createSherpaModel();
+    _setImportHook(async (specifier) => {
+      if (specifier === "parakeet-coreml") {
+        throw moduleNotFound("parakeet-coreml");
+      }
+
+      if (specifier === "sherpa-onnx-node") {
+        throw moduleNotFound("sherpa-onnx-node");
+      }
+
+      throw new Error(`unexpected import: ${specifier}`);
     });
     process.env.OPENAI_API_KEY = "sk-test";
     const fetchMock = vi.fn().mockResolvedValue({
@@ -91,23 +194,27 @@ describe("voice transcription", () => {
   });
 
   it("throws a helpful error when no backend is available", async () => {
-    _setImportHook(async () => {
-      const error = new Error("Cannot find package 'parakeet-coreml'") as Error & { code?: string };
-      error.code = "ERR_MODULE_NOT_FOUND";
-      throw error;
+    _setImportHook(async (specifier) => {
+      if (specifier === "parakeet-coreml") {
+        throw moduleNotFound("parakeet-coreml");
+      }
+      throw new Error(`unexpected import: ${specifier}`);
     });
 
     await expect(transcribeAudio(audioPath)).rejects.toThrow("Voice messages require a transcription backend.");
     await expect(transcribeAudio(audioPath)).rejects.toThrow("npm install parakeet-coreml");
     await expect(transcribeAudio(audioPath)).rejects.toThrow("brew install ffmpeg");
+    await expect(transcribeAudio(audioPath)).rejects.toThrow("sherpa-onnx-node");
+    await expect(transcribeAudio(audioPath)).rejects.toThrow("SHERPA_ONNX_MODEL_DIR");
     await expect(transcribeAudio(audioPath)).rejects.toThrow("OPENAI_API_KEY=sk-");
   });
 
   it("surfaces OpenAI API errors", async () => {
-    _setImportHook(async () => {
-      const error = new Error("Cannot find package 'parakeet-coreml'") as Error & { code?: string };
-      error.code = "ERR_MODULE_NOT_FOUND";
-      throw error;
+    _setImportHook(async (specifier) => {
+      if (specifier === "parakeet-coreml") {
+        throw moduleNotFound("parakeet-coreml");
+      }
+      throw new Error(`unexpected import: ${specifier}`);
     });
     process.env.OPENAI_API_KEY = "sk-test";
     vi.stubGlobal(
@@ -143,7 +250,46 @@ describe("voice transcription", () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
+  it("rethrows sherpa runtime errors instead of falling through", async () => {
+    createSherpaModel();
+    _setDecodeHook(async () => new Float32Array(100));
+    _setImportHook(async (specifier) => {
+      if (specifier === "parakeet-coreml") {
+        throw moduleNotFound("parakeet-coreml");
+      }
+
+      if (specifier === "sherpa-onnx-node") {
+        return {
+          OfflineRecognizer: class {
+            createStream() {
+              return {
+                acceptWaveform: vi.fn(),
+              };
+            }
+
+            decode(): void {
+              throw new Error("sherpa decode failed");
+            }
+
+            getResult(): { text: string } {
+              return { text: "unused" };
+            }
+          },
+        };
+      }
+
+      throw new Error(`unexpected import: ${specifier}`);
+    });
+    process.env.OPENAI_API_KEY = "sk-test";
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(transcribeAudio(audioPath)).rejects.toThrow("sherpa decode failed");
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   it("reports available backends", async () => {
+    createSherpaModel();
     _setImportHook(async (specifier) => {
       if (specifier === "parakeet-coreml") {
         return {
@@ -155,17 +301,37 @@ describe("voice transcription", () => {
           },
         };
       }
+
+      if (specifier === "sherpa-onnx-node") {
+        return {
+          OfflineRecognizer: class {
+            createStream() {
+              return { acceptWaveform: vi.fn() };
+            }
+            decode(): void {}
+            getResult(): { text: string } {
+              return { text: "ignored" };
+            }
+          },
+        };
+      }
+
       throw new Error(`unexpected import: ${specifier}`);
     });
     process.env.OPENAI_API_KEY = "sk-test";
 
-    await expect(getAvailableBackends()).resolves.toEqual(["parakeet", "openai"]);
+    await expect(getAvailableBackends()).resolves.toEqual(["parakeet", "sherpa-onnx", "openai"]);
 
-    _setImportHook(async () => {
-      const error = new Error("Cannot find package 'parakeet-coreml'") as Error & { code?: string };
-      error.code = "ERR_MODULE_NOT_FOUND";
-      throw error;
+    _setImportHook(async (specifier) => {
+      if (specifier === "parakeet-coreml") {
+        throw moduleNotFound("parakeet-coreml");
+      }
+      if (specifier === "sherpa-onnx-node") {
+        throw moduleNotFound("sherpa-onnx-node");
+      }
+      throw new Error(`unexpected import: ${specifier}`);
     });
+    delete process.env.SHERPA_ONNX_MODEL_DIR;
     delete process.env.OPENAI_API_KEY;
 
     await expect(getAvailableBackends()).resolves.toEqual([]);
@@ -210,10 +376,11 @@ describe("voice transcription", () => {
   });
 
   it("throws when OpenAI response is missing text field", async () => {
-    _setImportHook(async () => {
-      const error = new Error("Cannot find package 'parakeet-coreml'") as Error & { code?: string };
-      error.code = "ERR_MODULE_NOT_FOUND";
-      throw error;
+    _setImportHook(async (specifier) => {
+      if (specifier === "parakeet-coreml") {
+        throw moduleNotFound("parakeet-coreml");
+      }
+      throw new Error(`unexpected import: ${specifier}`);
     });
     process.env.OPENAI_API_KEY = "sk-test";
     vi.stubGlobal(
@@ -230,10 +397,11 @@ describe("voice transcription", () => {
   });
 
   it("throws when fetch rejects entirely (network failure)", async () => {
-    _setImportHook(async () => {
-      const error = new Error("Cannot find package 'parakeet-coreml'") as Error & { code?: string };
-      error.code = "ERR_MODULE_NOT_FOUND";
-      throw error;
+    _setImportHook(async (specifier) => {
+      if (specifier === "parakeet-coreml") {
+        throw moduleNotFound("parakeet-coreml");
+      }
+      throw new Error(`unexpected import: ${specifier}`);
     });
     process.env.OPENAI_API_KEY = "sk-test";
     vi.stubGlobal(
@@ -301,6 +469,22 @@ describe("voice transcription", () => {
     await expect(transcribeAudio(audioPath)).rejects.toThrow("does not expose a ParakeetAsrEngine class");
   });
 
+  it("throws when sherpa-onnx-node does not expose OfflineRecognizer", async () => {
+    createSherpaModel();
+    _setDecodeHook(async () => new Float32Array(100));
+    _setImportHook(async (specifier) => {
+      if (specifier === "parakeet-coreml") {
+        throw moduleNotFound("parakeet-coreml");
+      }
+      if (specifier === "sherpa-onnx-node") {
+        return {};
+      }
+      throw new Error(`unexpected import: ${specifier}`);
+    });
+
+    await expect(transcribeAudio(audioPath)).rejects.toThrow("does not expose an OfflineRecognizer class");
+  });
+
   it("throws when the parakeet engine does not expose transcribe", async () => {
     _setDecodeHook(async () => new Float32Array(100));
     _setImportHook(async () => ({
@@ -324,6 +508,32 @@ describe("voice transcription", () => {
     }));
 
     await expect(transcribeAudio(audioPath)).rejects.toThrow("unsupported transcription result");
+  });
+
+  it("throws when sherpa returns an unsupported transcription result", async () => {
+    createSherpaModel();
+    _setDecodeHook(async () => new Float32Array(100));
+    _setImportHook(async (specifier) => {
+      if (specifier === "parakeet-coreml") {
+        throw moduleNotFound("parakeet-coreml");
+      }
+      if (specifier === "sherpa-onnx-node") {
+        return {
+          OfflineRecognizer: class {
+            createStream() {
+              return { acceptWaveform: vi.fn() };
+            }
+            decode(): void {}
+            getResult(): { tokens: [] } {
+              return { tokens: [] };
+            }
+          },
+        };
+      }
+      throw new Error(`unexpected import: ${specifier}`);
+    });
+
+    await expect(transcribeAudio(audioPath)).rejects.toThrow("sherpa-onnx-node returned an unsupported transcription result");
   });
 
   it("resolves ParakeetAsrEngine from parakeet-coreml default export", async () => {

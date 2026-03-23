@@ -1648,7 +1648,7 @@ function renderSessionInfoHTML(info: PiSessionInfo): string {
 
 function renderVoiceSupportPlain(backends: string[]): string {
   if (backends.length === 0) {
-    return "Voice transcription: unavailable (install parakeet-coreml + ffmpeg or set OPENAI_API_KEY).";
+    return "Voice transcription: unavailable (install parakeet-coreml + ffmpeg, or on Intel-based Macs where parakeet-coreml is not supported install sherpa-onnx-node + SHERPA_ONNX_MODEL_DIR, or set OPENAI_API_KEY).";
   }
 
   return `Voice transcription: ${backends.join(", ")}.`;
@@ -1656,7 +1656,7 @@ function renderVoiceSupportPlain(backends: string[]): string {
 
 function renderVoiceSupportHTML(backends: string[]): string {
   if (backends.length === 0) {
-    return "<i>Voice transcription unavailable.</i> Install <code>parakeet-node</code> or set <code>OPENAI_API_KEY</code>.";
+    return "<i>Voice transcription unavailable.</i> Install <code>parakeet-coreml</code>, or on Intel-based Macs where <code>parakeet-coreml</code> is not supported install <code>sherpa-onnx-node</code> with <code>SHERPA_ONNX_MODEL_DIR</code>, or set <code>OPENAI_API_KEY</code>.";
   }
 
   return `<i>Voice transcription available via:</i> <code>${escapeHTML(backends.join(", "))}</code>`;
