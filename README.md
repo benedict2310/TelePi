@@ -7,7 +7,7 @@ TelePi is a Telegram bridge for the [Pi coding agent](https://github.com/badlogi
 - **Bi-directional hand-off**: Move sessions CLI → Telegram (`/handoff`) and back (`/handback`)
 - **Per-chat/topic sessions**: Every Telegram chat or forum topic gets its own Pi session, picker state, and retry history
 - **Voice messages**: Send a voice note or audio file and TelePi transcribes it into a Pi prompt
-- **Local or cloud transcription**: [Parakeet CoreML](https://github.com/badlogic/parakeet-coreml) (free, private, on-device) or OpenAI Whisper (cloud)
+- **Local or cloud transcription**: [Parakeet CoreML](https://github.com/badlogic/parakeet-coreml) on Apple Silicon, [Sherpa-ONNX Parakeet](https://k2-fsa.github.io/sherpa/onnx/) for Intel Macs (and as a CPU fallback), or OpenAI Whisper in the cloud
 - **Session tree navigation**: Browse, branch, and label your Pi session history with `/tree`, `/branch`, `/label`
 - **Cross-workspace sessions**: Browse and switch between sessions from any project
 - **Model switching**: Change AI models on the fly via `/model`
@@ -38,6 +38,8 @@ TelePi is a Telegram bridge for the [Pi coding agent](https://github.com/badlogi
    - `PI_SESSION_PATH` *(optional)* — open a specific Pi session JSONL file for hand-off
    - `PI_MODEL` *(optional)* — force a specific model, e.g. `anthropic/claude-sonnet-4-5`
    - `OPENAI_API_KEY` *(optional)* — enable cloud-based voice transcription via OpenAI Whisper
+   - `SHERPA_ONNX_MODEL_DIR` *(optional)* — path to an extracted Sherpa-ONNX Parakeet model directory (primarily for Intel Macs)
+   - `SHERPA_ONNX_NUM_THREADS` *(optional)* — CPU threads for Sherpa-ONNX (default: `2`)
    - `TOOL_VERBOSITY` *(optional)* — `all` | `summary` | `errors-only` | `none` (default: `summary`)
 
 3. Start the bot:
@@ -81,18 +83,25 @@ Send any Telegram **voice message** or **audio file** and TelePi will transcribe
 [Pi responds normally]
 ```
 
-TelePi supports two transcription backends and picks the best one automatically:
+TelePi supports three transcription backends and picks the best one automatically:
 
 | Backend | How to enable | Cost | Privacy |
 |---------|---------------|------|---------|
-| **Parakeet** (local, CoreML) | `npm install parakeet-coreml` + `brew install ffmpeg` | Free | On-device |
+| **Parakeet CoreML** (local) | `npm install parakeet-coreml` + `brew install ffmpeg` | Free | On-device |
+| **Sherpa-ONNX Parakeet** (local, Intel Mac path) | `npm install sherpa-onnx-node` + download model + set `SHERPA_ONNX_MODEL_DIR` | Free | On-device |
 | **OpenAI Whisper** (cloud) | `OPENAI_API_KEY=sk-...` in `.env` | ~$0.006/min | Cloud |
 
-Parakeet is tried first when installed. If it is not available, TelePi falls back to OpenAI Whisper. The `/start` command shows which backends are currently active.
+TelePi tries backends in this order:
 
-### Installing Parakeet (local transcription)
+1. **Parakeet CoreML** — best local path on Apple Silicon
+2. **Sherpa-ONNX Parakeet** — the local/offline path for Intel Macs, where `parakeet-coreml` does not run (and a CPU fallback on Apple Silicon)
+3. **OpenAI Whisper** — cloud fallback
 
-Parakeet is an optional dependency (~1.5 GB download, macOS only with Apple Silicon):
+The `/start` command shows which backends are currently active.
+
+### Installing Parakeet CoreML (local transcription on Apple Silicon)
+
+Parakeet CoreML is an optional dependency (~1.5 GB download, macOS only with Apple Silicon):
 
 ```bash
 npm install parakeet-coreml
@@ -100,6 +109,42 @@ brew install ffmpeg   # required for audio decoding
 ```
 
 On first use the CoreML model is downloaded automatically. Subsequent calls use the cached model.
+
+### Installing Sherpa-ONNX Parakeet (local transcription for Intel Macs)
+
+This is the recommended local transcription path on Intel Macs, since `parakeet-coreml` is Apple-Silicon-only. It can also be used on Apple Silicon, but TelePi will still prefer Parakeet CoreML there when available.
+
+Install the optional Node binding:
+
+```bash
+npm install sherpa-onnx-node
+brew install ffmpeg   # required for audio decoding
+```
+
+Download and extract the Parakeet model layout TelePi expects (`encoder.int8.onnx`, `decoder.int8.onnx`, `joiner.int8.onnx`, `tokens.txt`). The v3 multilingual model below is the intended Intel Mac setup:
+
+```bash
+curl -LO https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-nemo-parakeet-tdt-0.6b-v3-int8.tar.bz2
+tar xvf sherpa-onnx-nemo-parakeet-tdt-0.6b-v3-int8.tar.bz2
+```
+
+Point TelePi at the extracted directory:
+
+```bash
+export SHERPA_ONNX_MODEL_DIR="$(pwd)/sherpa-onnx-nemo-parakeet-tdt-0.6b-v3-int8"
+```
+
+If `SHERPA_ONNX_MODEL_DIR` is set, TelePi treats missing model files or a missing `sherpa-onnx-node` package as configuration errors and will not silently fall through to OpenAI.
+
+If the native module cannot find its shared libraries on macOS, start TelePi with:
+
+```bash
+export DYLD_LIBRARY_PATH="$(pwd)/node_modules/sherpa-onnx-darwin-$(uname -m | sed 's/x86_64/x64/;s/arm64/arm64/'):${DYLD_LIBRARY_PATH}"
+```
+
+For the exact family of Sherpa Parakeet models TelePi currently supports, plus platform notes, see:
+
+- https://k2-fsa.github.io/sherpa/onnx/pretrained_models/offline-transducer/nemo-transducer-models.html
 
 ### Using OpenAI Whisper (cloud transcription)
 
@@ -270,7 +315,7 @@ TelePi/
 │   ├── config.ts                ← environment config
 │   ├── format.ts                ← markdown → Telegram HTML
 │   ├── tree.ts                  ← session tree rendering & navigation
-│   └── voice.ts                 ← audio transcription (Parakeet / OpenAI)
+│   └── voice.ts                 ← audio transcription (Parakeet CoreML / Sherpa-ONNX / OpenAI)
 ├── test/
 │   ├── bot.test.ts              ← bot command/callback integration tests
 │   ├── config.test.ts           ← config/env loading tests
@@ -316,7 +361,7 @@ The compose file:
 ```
 Telegram ←→ Grammy bot (auto-retry, topic-aware routing, inline keyboards)
                 |
-                ├── Voice handler ──→ voice.ts (Parakeet | OpenAI Whisper)
+                ├── Voice handler ──→ voice.ts (Parakeet CoreML | Sherpa-ONNX | OpenAI Whisper)
                 |                         |
                 |                    ffmpeg decode
                 v

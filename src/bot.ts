@@ -23,7 +23,7 @@ import {
   truncateText,
   type TreeFilterMode,
 } from "./tree.js";
-import { getAvailableBackends, transcribeAudio } from "./voice.js";
+import { getVoiceBackendStatus, transcribeAudio } from "./voice.js";
 
 const TELEGRAM_MESSAGE_LIMIT = 4000;
 const EDIT_DEBOUNCE_MS = 1500;
@@ -684,9 +684,14 @@ export function createBot(config: TelePiConfig, sessionRegistry: PiSessionRegist
 
     const piSession = await getOrCreateSession(target);
     const info = piSession.getInfo();
-    const voiceBackends = await getAvailableBackends().catch(() => []);
-    const voiceInfoPlain = renderVoiceSupportPlain(voiceBackends);
-    const voiceInfoHTML = renderVoiceSupportHTML(voiceBackends);
+    let voiceStatus: { backends: string[]; warning?: string } = { backends: [] };
+    try {
+      voiceStatus = (await getVoiceBackendStatus()) ?? { backends: [] };
+    } catch {
+      // Keep /start working even if backend probing fails.
+    }
+    const voiceInfoPlain = renderVoiceSupportPlain(voiceStatus.backends, voiceStatus.warning);
+    const voiceInfoHTML = renderVoiceSupportHTML(voiceStatus.backends, voiceStatus.warning);
     const plainText = [
       "TelePi is ready.",
       "",
@@ -1908,20 +1913,20 @@ function renderSessionInfoHTML(info: PiSessionInfo): string {
     .join("\n");
 }
 
-function renderVoiceSupportPlain(backends: string[]): string {
-  if (backends.length === 0) {
-    return "Voice transcription: unavailable (install parakeet-coreml + ffmpeg or set OPENAI_API_KEY).";
-  }
+function renderVoiceSupportPlain(backends: string[], warning?: string): string {
+  const status = backends.length === 0
+    ? "Voice transcription: unavailable (install parakeet-coreml + ffmpeg, or on Intel Macs install sherpa-onnx-node + SHERPA_ONNX_MODEL_DIR, or set OPENAI_API_KEY)."
+    : `Voice transcription: ${backends.join(", ")}.`;
 
-  return `Voice transcription: ${backends.join(", ")}.`;
+  return warning ? `${status}\nWarning: ${warning}` : status;
 }
 
-function renderVoiceSupportHTML(backends: string[]): string {
-  if (backends.length === 0) {
-    return "<i>Voice transcription unavailable.</i> Install <code>parakeet-node</code> or set <code>OPENAI_API_KEY</code>.";
-  }
+function renderVoiceSupportHTML(backends: string[], warning?: string): string {
+  const status = backends.length === 0
+    ? "<i>Voice transcription unavailable.</i> Install <code>parakeet-coreml</code>, or on Intel Macs install <code>sherpa-onnx-node</code> with <code>SHERPA_ONNX_MODEL_DIR</code>, or set <code>OPENAI_API_KEY</code>."
+    : `<i>Voice transcription available via:</i> <code>${escapeHTML(backends.join(", "))}</code>`;
 
-  return `<i>Voice transcription available via:</i> <code>${escapeHTML(backends.join(", "))}</code>`;
+  return warning ? `${status}\n⚠️ ${escapeHTML(warning)}` : status;
 }
 
 function renderToolStartMessage(toolName: string): RenderedText {

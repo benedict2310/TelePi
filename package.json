@@ -16,7 +16,8 @@
     "grammy": "^1.35.0"
   },
   "optionalDependencies": {
-    "parakeet-coreml": "^2.2.0"
+    "parakeet-coreml": "^2.2.0",
+    "sherpa-onnx-node": "1.12.32"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",

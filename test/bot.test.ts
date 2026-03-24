@@ -26,6 +26,7 @@ vi.mock("../src/voice.js", () => ({
     durationMs: 500,
   }),
   getAvailableBackends: vi.fn().mockResolvedValue(["openai"]),
+  getVoiceBackendStatus: vi.fn().mockResolvedValue({ backends: ["openai"], warning: undefined }),
   _setImportHook: vi.fn(),
   _resetImportHook: vi.fn(),
 }));
