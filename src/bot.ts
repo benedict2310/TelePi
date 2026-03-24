@@ -813,56 +813,23 @@ export function createBot(config: TelePiConfig, sessionRegistry: PiSessionRegist
       return;
     }
 
-    const grouped = new Map<string, Array<(typeof allSessions)[number]>>();
-    for (const session of allSessions) {
-      const workspace = session.cwd || "Unknown";
-      if (!grouped.has(workspace)) {
-        grouped.set(workspace, []);
-      }
-      grouped.get(workspace)?.push(session);
-    }
-
-    const textLines: string[] = [];
     const orderedPicks: Array<{ path: string; cwd: string }> = [];
-    const sessionButtons: KeyboardItem[] = [];
-
-    for (const [workspace, sessions] of grouped) {
-      const shortWorkspace = getWorkspaceShortName(workspace);
-      if (textLines.length > 0) {
-        textLines.push("");
-      }
-      textLines.push(`📁 ${shortWorkspace}`);
-
-      for (const session of sessions) {
-        const idx = orderedPicks.length;
-        const label = trimLine(session.name || session.firstMessage, 35) || `Session ${idx + 1}`;
-        sessionButtons.push({
-          label: `📁 ${shortWorkspace.slice(0, 8)} · ${label.slice(0, 30)}`,
-          callbackData: `switch_${idx}`,
-        });
-        textLines.push(`  ${idx + 1}. ${label} (${session.messageCount} msgs)`);
-        orderedPicks.push({ path: session.path, cwd: session.cwd });
-      }
-    }
+    const sessionButtons: KeyboardItem[] = allSessions.map((session, idx) => {
+      const shortWorkspace = getWorkspaceShortName(session.cwd || "Unknown");
+      const label = trimLine(session.name || session.firstMessage, 35) || `Session ${idx + 1}`;
+      orderedPicks.push({ path: session.path, cwd: session.cwd });
+      return {
+        label: `📁 ${shortWorkspace.slice(0, 8)} · ${label.slice(0, 30)}`,
+        callbackData: `switch_${idx}`,
+      };
+    });
 
     pendingSessionPicks.set(contextKey, orderedPicks);
     pendingSessionButtons.set(contextKey, sessionButtons);
 
     const keyboard = buildKeyboard(sessionButtons, 0, "switch");
-    const plainText = [
-      `Available sessions (${allSessions.length} shown):`,
-      "",
-      ...textLines,
-      "",
-      "Tap a session to switch.",
-    ].join("\n");
-    const html = [
-      `<b>Available sessions</b> <i>(${allSessions.length} shown)</i>`,
-      "",
-      ...textLines.map((line) => escapeHTML(line)),
-      "",
-      "Tap a session to switch.",
-    ].join("\n");
+    const plainText = `Select a session to switch (${allSessions.length} found).`;
+    const html = `<b>Select a session to switch</b> <i>(${allSessions.length} found)</i>`;
 
     await safeReply(ctx, html, {
       fallbackText: plainText,

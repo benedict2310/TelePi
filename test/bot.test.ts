@@ -705,14 +705,19 @@ describe("createBot", () => {
     expect(registry.getSession(ALLOWED_CHAT_ID, 910)).toBeUndefined();
   });
 
-  it("lists sessions grouped by workspace with inline switch buttons", async () => {
+  it("shows a compact session picker with inline switch buttons", async () => {
     const { bot, api } = setupBot();
 
     await bot.handleUpdate(createTestUpdate({ message: { text: "/sessions" } }));
 
-    expect(api.sendMessage.mock.calls[0]?.[1]).toContain("Available sessions");
-    expect(api.sendMessage.mock.calls[0]?.[1]).toContain("📁 A");
-    expect(api.sendMessage.mock.calls[0]?.[1]).toContain("📁 B");
+    expect(api.sendMessage.mock.calls[0]?.[1]).toContain("Select a session to switch");
+    expect(api.sendMessage.mock.calls[0]?.[1]).toContain("(2 found)");
+    expect(api.sendMessage.mock.calls[0]?.[1]).not.toContain("📁 A");
+    expect(api.sendMessage.mock.calls[0]?.[1]).not.toContain("📁 B");
+    expect(getReplyMarkupButtons(api).slice(0, 2).map((button) => button.text)).toEqual([
+      "📁 A · Hello session",
+      "📁 B · World session",
+    ]);
     expect(getReplyMarkupData(api)).toEqual(["switch_0", "switch_1"]);
   });
 
