@@ -1,25 +1,25 @@
 import { createBot, registerCommands } from "./bot.js";
 import { loadConfig } from "./config.js";
-import { PiSessionService } from "./pi-session.js";
+import { PiSessionRegistry } from "./pi-session.js";
 
-let piSession: PiSessionService | undefined;
+let sessionRegistry: PiSessionRegistry | undefined;
 let bot: ReturnType<typeof createBot> | undefined;
 
 try {
   const config = loadConfig();
-  piSession = await PiSessionService.create(config);
-  bot = createBot(config, piSession);
+  sessionRegistry = await PiSessionRegistry.create(config);
+  bot = createBot(config, sessionRegistry);
   await registerCommands(bot);
 
-  const sessionInfo = piSession.getInfo();
   console.log("TelePi running");
-  console.log(`Session ID: ${sessionInfo.sessionId}`);
-  console.log(`Session file: ${sessionInfo.sessionFile ?? "(in-memory)"}`);
-  console.log(`Workspace: ${sessionInfo.workspace}`);
+  console.log(`Default workspace: ${config.workspace}`);
+  if (config.piSessionPath) {
+    console.log(`Bootstrap session: ${config.piSessionPath}`);
+  }
 } catch (error) {
   const message = error instanceof Error ? error.message : String(error);
   console.error(`Failed to start TelePi: ${message}`);
-  piSession?.dispose();
+  sessionRegistry?.dispose();
   process.exit(1);
 }
 
@@ -33,9 +33,9 @@ const shutdown = (signal: NodeJS.Signals) => {
   console.log(`Received ${signal}, shutting down TelePi...`);
   if (bot) bot.stop();
 
-  // Give grammy a moment to finish in-flight dispatches before disposing the Pi session
+  // Give grammy a moment to finish in-flight dispatches before disposing Pi sessions.
   setTimeout(() => {
-    piSession?.dispose();
+    sessionRegistry?.dispose();
     console.log("TelePi stopped.");
     process.exit(0);
   }, 500);
@@ -73,7 +73,7 @@ async function startPolling(): Promise<void> {
     }
 
     console.error(`Fatal polling error: ${message}`);
-    piSession?.dispose();
+    sessionRegistry?.dispose();
     process.exit(1);
   }
 }

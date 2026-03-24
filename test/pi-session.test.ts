@@ -159,7 +159,7 @@ vi.mock("@mariozechner/pi-coding-agent", () => ({
   SessionManager: mockState.SessionManager,
 }));
 
-import { PiSessionService } from "../src/pi-session.js";
+import { getPiSessionContextKey, PiSessionRegistry, PiSessionService } from "../src/pi-session.js";
 
 describe("PiSessionService", () => {
   const createConfig = (overrides: Partial<TelePiConfig> = {}): TelePiConfig => ({
@@ -577,5 +577,91 @@ describe("PiSessionService", () => {
     expect(result.created).toBe(true);
     expect(service.hasActiveSession()).toBe(true);
     expect(mockState.createAgentSession).toHaveBeenCalledTimes(2);
+  });
+
+  it("builds stable context keys for chat/topic pairs", () => {
+    expect(getPiSessionContextKey({ chatId: 123 })).toBe("123::root");
+    expect(getPiSessionContextKey({ chatId: 123, messageThreadId: 77 })).toBe("123::77");
+  });
+
+  it("creates independent services per Telegram context", async () => {
+    const registry = await PiSessionRegistry.create(createConfig({ piSessionPath: "/sessions/bootstrap.jsonl" }));
+
+    const rootService = await registry.getOrCreate({ chatId: 1 });
+    const topicService = await registry.getOrCreate({ chatId: 1, messageThreadId: 99 });
+    const rootAgain = await registry.getOrCreate({ chatId: 1 });
+
+    expect(rootAgain).toBe(rootService);
+    expect(topicService).not.toBe(rootService);
+    expect(mockState.createAgentSession).toHaveBeenCalledTimes(2);
+    expect(mockState.SessionManager.open).toHaveBeenCalledWith("/sessions/bootstrap.jsonl");
+    expect(mockState.SessionManager.create).toHaveBeenCalledWith("/workspace/base");
+  });
+
+  it("deduplicates concurrent getOrCreate calls for the same context", async () => {
+    const registry = await PiSessionRegistry.create(createConfig());
+    const originalImpl = mockState.createAgentSession.getMockImplementation();
+    let resolveCreate!: () => void;
+
+    mockState.createAgentSession.mockImplementationOnce(async (options: any) => {
+      await new Promise<void>((resolve) => {
+        resolveCreate = resolve;
+      });
+      return originalImpl!(options);
+    });
+
+    const first = registry.getOrCreate({ chatId: 7, messageThreadId: 1 });
+    const second = registry.getOrCreate({ chatId: 7, messageThreadId: 1 });
+
+    expect(mockState.createAgentSession).toHaveBeenCalledTimes(1);
+
+    resolveCreate();
+    const [firstService, secondService] = await Promise.all([first, second]);
+
+    expect(firstService).toBe(secondService);
+    expect(mockState.createAgentSession).toHaveBeenCalledTimes(1);
+  });
+
+  it("returns fallback info for untouched contexts in the registry", async () => {
+    const registry = await PiSessionRegistry.create(createConfig());
+
+    expect(registry.getInfo({ chatId: 42 })).toEqual({
+      sessionId: "(no active session)",
+      sessionFile: undefined,
+      workspace: "/workspace/base",
+      sessionName: undefined,
+      modelFallbackMessage: undefined,
+      model: undefined,
+    });
+  });
+
+  it("removes and disposes individual context services", async () => {
+    const registry = await PiSessionRegistry.create(createConfig());
+    const service = await registry.getOrCreate({ chatId: 9, messageThreadId: 3 });
+
+    registry.remove({ chatId: 9, messageThreadId: 3 });
+
+    expect(service.hasActiveSession()).toBe(false);
+    expect(registry.get({ chatId: 9, messageThreadId: 3 })).toBeUndefined();
+  });
+
+  it("rejects inflight creations that are removed before they finish", async () => {
+    const registry = await PiSessionRegistry.create(createConfig());
+    const originalImpl = mockState.createAgentSession.getMockImplementation();
+    let resolveCreate!: () => void;
+
+    mockState.createAgentSession.mockImplementationOnce(async (options: any) => {
+      await new Promise<void>((resolve) => {
+        resolveCreate = resolve;
+      });
+      return originalImpl!(options);
+    });
+
+    const pending = registry.getOrCreate({ chatId: 11, messageThreadId: 4 });
+    registry.remove({ chatId: 11, messageThreadId: 4 });
+    resolveCreate();
+
+    await expect(pending).rejects.toThrow("Session removed during initialization");
+    expect(registry.get({ chatId: 11, messageThreadId: 4 })).toBeUndefined();
   });
 });

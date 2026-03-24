@@ -31,7 +31,13 @@ vi.mock("../src/voice.js", () => ({
 }));
 
 import type { TelePiConfig } from "../src/config.js";
-import type { PiSessionCallbacks, PiSessionInfo, PiSessionService } from "../src/pi-session.js";
+import type {
+  PiSessionCallbacks,
+  PiSessionContext,
+  PiSessionInfo,
+  PiSessionRegistry,
+  PiSessionService,
+} from "../src/pi-session.js";
 import { createBot, registerCommands } from "../src/bot.js";
 import { getAvailableBackends, transcribeAudio } from "../src/voice.js";
 
@@ -70,6 +76,7 @@ function makeMessageTreeNode(
 type SetupOptions = {
   configOverrides?: Partial<TelePiConfig>;
   piSessionOverrides?: Partial<PiSessionService>;
+  perContextSessionOverrides?: Record<string, Partial<PiSessionService>>;
 };
 
 function createConfig(overrides: Partial<TelePiConfig> = {}): TelePiConfig {
@@ -83,6 +90,10 @@ function createConfig(overrides: Partial<TelePiConfig> = {}): TelePiConfig {
     toolVerbosity: "summary",
     ...overrides,
   };
+}
+
+function makeContextKey(chatId: number | string = ALLOWED_CHAT_ID, messageThreadId?: number): string {
+  return `${String(chatId)}::${messageThreadId ?? "root"}`;
 }
 
 function createMockPiSession(overrides: Partial<PiSessionService> = {}) {
@@ -229,9 +240,70 @@ function createMockPiSession(overrides: Partial<PiSessionService> = {}) {
   };
 }
 
+function createMockPiSessionRegistry(options: SetupOptions = {}) {
+  const services = new Map<string, ReturnType<typeof createMockPiSession>>();
+  const defaultKey = makeContextKey();
+  const buildSession = (context: PiSessionContext) => {
+    const contextKey = makeContextKey(context.chatId, context.messageThreadId);
+    return createMockPiSession({
+      ...options.piSessionOverrides,
+      ...options.perContextSessionOverrides?.[contextKey],
+    });
+  };
+
+  services.set(defaultKey, buildSession({ chatId: ALLOWED_CHAT_ID }));
+
+  const defaultInfo: PiSessionInfo = {
+    sessionId: "(no active session)",
+    sessionFile: undefined,
+    workspace: options.configOverrides?.workspace ?? "/workspace",
+    sessionName: undefined,
+    modelFallbackMessage: undefined,
+    model: undefined,
+  };
+
+  const registry = {
+    getOrCreate: vi.fn(async (context: PiSessionContext) => {
+      const contextKey = makeContextKey(context.chatId, context.messageThreadId);
+      let entry = services.get(contextKey);
+      if (!entry) {
+        entry = buildSession(context);
+        services.set(contextKey, entry);
+      }
+      return entry.service;
+    }),
+    get: vi.fn((context: PiSessionContext) => {
+      const contextKey = makeContextKey(context.chatId, context.messageThreadId);
+      return services.get(contextKey)?.service;
+    }),
+    has: vi.fn((context: PiSessionContext) => {
+      const contextKey = makeContextKey(context.chatId, context.messageThreadId);
+      return services.has(contextKey);
+    }),
+    getInfo: vi.fn((context: PiSessionContext) => {
+      const contextKey = makeContextKey(context.chatId, context.messageThreadId);
+      return services.get(contextKey)?.service.getInfo() ?? defaultInfo;
+    }),
+    remove: vi.fn((context: PiSessionContext) => {
+      const contextKey = makeContextKey(context.chatId, context.messageThreadId);
+      services.get(contextKey)?.service.dispose();
+      services.delete(contextKey);
+    }),
+    dispose: vi.fn(),
+  } satisfies Partial<PiSessionRegistry>;
+
+  return {
+    registry: registry as PiSessionRegistry,
+    getSession(chatId: number | string = ALLOWED_CHAT_ID, messageThreadId?: number) {
+      return services.get(makeContextKey(chatId, messageThreadId));
+    },
+  };
+}
+
 function setupBot(options: SetupOptions = {}) {
-  const pi = createMockPiSession(options.piSessionOverrides);
-  const bot = createBot(createConfig(options.configOverrides), pi.service);
+  const registry = createMockPiSessionRegistry(options);
+  const pi = registry.getSession()!;
+  const bot = createBot(createConfig(options.configOverrides), registry.registry);
   let messageId = 0;
 
   const api = {
@@ -260,6 +332,7 @@ function setupBot(options: SetupOptions = {}) {
           result: await api.sendMessage(payload.chat_id, payload.text, {
             parse_mode: payload.parse_mode,
             reply_markup: payload.reply_markup,
+            message_thread_id: payload.message_thread_id,
           }),
         };
       case "editMessageText":
@@ -274,7 +347,7 @@ function setupBot(options: SetupOptions = {}) {
         });
         return { ok: true, result: true };
       case "sendChatAction":
-        await api.sendChatAction(payload.chat_id, payload.action);
+        await api.sendChatAction(payload.chat_id, payload.action, payload.message_thread_id);
         return { ok: true, result: true };
       case "setMyCommands":
         await api.setMyCommands(payload.commands);
@@ -304,7 +377,7 @@ function setupBot(options: SetupOptions = {}) {
     supports_inline_queries: false,
   };
 
-  return { bot, pi, api };
+  return { bot, pi, api, registry };
 }
 
 function createTestUpdate(overrides: Record<string, any> = {}): any {
@@ -477,6 +550,57 @@ describe("createBot", () => {
     expect(api.sendMessage.mock.calls[0]?.[1]).toContain("Session ID");
   });
 
+  it("handles /help and /retry flows", async () => {
+    const { bot, pi, api } = setupBot();
+
+    await bot.handleUpdate(createTestUpdate({ message: { text: "/help" } }));
+    expect(api.sendMessage.mock.calls[0]?.[1]).toContain("/retry");
+    expect(api.sendMessage.mock.calls[0]?.[1]).toContain("Each Telegram chat/topic has its own Pi session");
+
+    api.sendMessage.mockClear();
+    await bot.handleUpdate(createTestUpdate({ message: { text: "/retry" } }));
+    expect(api.sendMessage.mock.calls[0]?.[1]).toContain("Nothing to retry yet");
+
+    const promptMock = pi.service.prompt as ReturnType<typeof vi.fn>;
+    promptMock.mockImplementation(async () => {
+      pi.emitTextDelta("Retried response");
+      pi.emitAgentEnd();
+    });
+
+    await bot.handleUpdate(createTestUpdate({ message: { text: "retry me" } }));
+    await bot.handleUpdate(createTestUpdate({ message: { text: "/retry" } }));
+
+    expect(pi.service.prompt).toHaveBeenNthCalledWith(1, "retry me");
+    expect(pi.service.prompt).toHaveBeenNthCalledWith(2, "retry me");
+  });
+
+  it("keeps /retry state isolated per topic", async () => {
+    const { bot, api } = setupBot();
+
+    await bot.handleUpdate(
+      createTestUpdate({
+        message: {
+          text: "topic one retry",
+          chat: { id: ALLOWED_CHAT_ID, type: "supergroup" },
+          message_thread_id: 101,
+        },
+      }),
+    );
+
+    api.sendMessage.mockClear();
+    await bot.handleUpdate(
+      createTestUpdate({
+        message: {
+          text: "/retry",
+          chat: { id: ALLOWED_CHAT_ID, type: "supergroup" },
+          message_thread_id: 202,
+        },
+      }),
+    );
+
+    expect(api.sendMessage.mock.calls[0]?.[1]).toContain("Nothing to retry yet in this chat/topic.");
+  });
+
   it("rejects unauthorized message senders", async () => {
     const { bot, api } = setupBot();
 
@@ -523,6 +647,27 @@ describe("createBot", () => {
     expect(api.sendMessage.mock.calls[0]?.[1]).toContain("/tmp/test.jsonl");
   });
 
+  it("shows fallback /session info for untouched contexts without creating a session", async () => {
+    const { bot, api, registry } = setupBot();
+
+    await bot.handleUpdate(
+      createTestUpdate({
+        message: {
+          text: "/session",
+          chat: { id: ALLOWED_CHAT_ID, type: "supergroup" },
+          message_thread_id: 909,
+        },
+      }),
+    );
+
+    expect(api.sendMessage.mock.calls[0]?.[1]).toContain("(no active session)");
+    expect((registry.registry.getOrCreate as ReturnType<typeof vi.fn>)).not.toHaveBeenCalledWith({
+      chatId: ALLOWED_CHAT_ID,
+      messageThreadId: 909,
+    });
+    expect(registry.getSession(ALLOWED_CHAT_ID, 909)).toBeUndefined();
+  });
+
   it("handles /abort success and failure", async () => {
     const ok = setupBot();
     await ok.bot.handleUpdate(createTestUpdate({ message: { text: "/abort" } }));
@@ -537,6 +682,27 @@ describe("createBot", () => {
     await failure.bot.handleUpdate(createTestUpdate({ message: { text: "/abort" } }));
     expect(failure.api.sendMessage.mock.calls[0]?.[1]).toContain("Failed:");
     expect(failure.api.sendMessage.mock.calls[0]?.[1]).toContain("abort failed");
+  });
+
+  it("does not create a fresh session for /abort in an untouched context", async () => {
+    const { bot, api, registry } = setupBot();
+
+    await bot.handleUpdate(
+      createTestUpdate({
+        message: {
+          text: "/abort",
+          chat: { id: ALLOWED_CHAT_ID, type: "supergroup" },
+          message_thread_id: 910,
+        },
+      }),
+    );
+
+    expect(api.sendMessage.mock.calls[0]?.[1]).toContain("No active session to abort.");
+    expect((registry.registry.getOrCreate as ReturnType<typeof vi.fn>)).not.toHaveBeenCalledWith({
+      chatId: ALLOWED_CHAT_ID,
+      messageThreadId: 910,
+    });
+    expect(registry.getSession(ALLOWED_CHAT_ID, 910)).toBeUndefined();
   });
 
   it("lists sessions grouped by workspace with inline switch buttons", async () => {
@@ -584,6 +750,158 @@ describe("createBot", () => {
 
     await bot.handleUpdate(createCallbackUpdate("switch_7"));
     expect(pi.service.switchSession).toHaveBeenCalledWith("/s7.jsonl", "/workspace/A");
+  });
+
+  it("routes session pickers and prompts per topic", async () => {
+    const topicOneKey = makeContextKey(ALLOWED_CHAT_ID, 101);
+    const topicTwoKey = makeContextKey(ALLOWED_CHAT_ID, 202);
+    const { bot, api, registry } = setupBot({
+      perContextSessionOverrides: {
+        [topicOneKey]: {
+          listAllSessions: vi.fn().mockResolvedValue([
+            {
+              id: "topic-1",
+              firstMessage: "Topic one",
+              path: "/topic-one.jsonl",
+              messageCount: 2,
+              cwd: "/workspace/topic-one",
+              modified: new Date("2025-01-02T00:00:00.000Z"),
+              name: undefined,
+            },
+          ]),
+        },
+        [topicTwoKey]: {
+          listAllSessions: vi.fn().mockResolvedValue([
+            {
+              id: "topic-2",
+              firstMessage: "Topic two",
+              path: "/topic-two.jsonl",
+              messageCount: 4,
+              cwd: "/workspace/topic-two",
+              modified: new Date("2025-01-03T00:00:00.000Z"),
+              name: undefined,
+            },
+          ]),
+        },
+      },
+    });
+
+    await bot.handleUpdate(
+      createTestUpdate({
+        message: {
+          text: "/sessions",
+          chat: { id: ALLOWED_CHAT_ID, type: "supergroup" },
+          message_thread_id: 101,
+        },
+      }),
+    );
+    await bot.handleUpdate(
+      createTestUpdate({
+        message: {
+          text: "/sessions",
+          chat: { id: ALLOWED_CHAT_ID, type: "supergroup" },
+          message_thread_id: 202,
+        },
+      }),
+    );
+
+    expect(api.sendMessage.mock.calls[0]?.[2]?.message_thread_id).toBe(101);
+    expect(api.sendMessage.mock.calls[1]?.[2]?.message_thread_id).toBe(202);
+
+    await bot.handleUpdate(
+      createCallbackUpdate("switch_0", {
+        callback_query: {
+          message: {
+            chat: { id: ALLOWED_CHAT_ID, type: "supergroup" },
+            message_thread_id: 101,
+          },
+        },
+      }),
+    );
+    await bot.handleUpdate(
+      createCallbackUpdate("switch_0", {
+        callback_query: {
+          message: {
+            chat: { id: ALLOWED_CHAT_ID, type: "supergroup" },
+            message_thread_id: 202,
+          },
+        },
+      }),
+    );
+
+    expect(registry.getSession(ALLOWED_CHAT_ID, 101)?.service.switchSession).toHaveBeenCalledWith(
+      "/topic-one.jsonl",
+      "/workspace/topic-one",
+    );
+    expect(registry.getSession(ALLOWED_CHAT_ID, 202)?.service.switchSession).toHaveBeenCalledWith(
+      "/topic-two.jsonl",
+      "/workspace/topic-two",
+    );
+
+    const topicOneSession = registry.getSession(ALLOWED_CHAT_ID, 101)!;
+    const promptMock = topicOneSession.service.prompt as ReturnType<typeof vi.fn>;
+    promptMock.mockImplementation(async () => {
+      topicOneSession.emitTextDelta("Topic response");
+      topicOneSession.emitAgentEnd();
+    });
+
+    await bot.handleUpdate(
+      createTestUpdate({
+        message: {
+          text: "topic prompt",
+          chat: { id: ALLOWED_CHAT_ID, type: "supergroup" },
+          message_thread_id: 101,
+        },
+      }),
+    );
+
+    expect(api.sendChatAction).toHaveBeenCalledWith(ALLOWED_CHAT_ID, "typing", 101);
+  });
+
+  it("allows independent topics to process prompts concurrently", async () => {
+    let resolveTopicOne!: () => void;
+    const { bot, api, registry } = setupBot({
+      perContextSessionOverrides: {
+        [makeContextKey(ALLOWED_CHAT_ID, 101)]: {
+          prompt: vi.fn().mockImplementation(
+            () =>
+              new Promise<void>((resolve) => {
+                resolveTopicOne = resolve;
+              }),
+          ),
+        },
+        [makeContextKey(ALLOWED_CHAT_ID, 202)]: {
+          prompt: vi.fn().mockResolvedValue(undefined),
+        },
+      },
+    });
+
+    const topicOnePending = bot.handleUpdate(
+      createTestUpdate({
+        message: {
+          text: "topic one prompt",
+          chat: { id: ALLOWED_CHAT_ID, type: "supergroup" },
+          message_thread_id: 101,
+        },
+      }),
+    );
+    await nextTick();
+
+    await bot.handleUpdate(
+      createTestUpdate({
+        message: {
+          text: "topic two prompt",
+          chat: { id: ALLOWED_CHAT_ID, type: "supergroup" },
+          message_thread_id: 202,
+        },
+      }),
+    );
+
+    expect(registry.getSession(ALLOWED_CHAT_ID, 202)?.service.prompt).toHaveBeenCalledWith("topic two prompt");
+    expect(api.sendMessage.mock.calls.some((call) => String(call[1]).includes("Still working on previous message..."))).toBe(false);
+
+    resolveTopicOne();
+    await topicOnePending;
   });
 
   it("switches directly via /sessions <path> and shows errors when switching fails", async () => {
@@ -711,6 +1029,9 @@ describe("createBot", () => {
     expect(ok.pi.service.handback).toHaveBeenCalledTimes(1);
     expect(ok.api.sendMessage.mock.calls[0]?.[1]).toContain("pi --session");
     expect(ok.api.sendMessage.mock.calls[0]?.[1]).toContain("pi -c");
+    expect((ok.registry.registry.remove as ReturnType<typeof vi.fn>)).toHaveBeenCalledWith({
+      chatId: ALLOWED_CHAT_ID,
+    });
 
     const noActive = setupBot({
       piSessionOverrides: {
@@ -1236,9 +1557,8 @@ describe("createBot", () => {
       },
     });
     await failedModelBootstrap.bot.handleUpdate(createTestUpdate({ message: { text: "/model" } }));
-    expect(failedModelBootstrap.api.sendMessage.mock.calls[0]?.[1]).toContain(
-      "Failed to create session: bootstrap failed",
-    );
+    expect(failedModelBootstrap.api.sendMessage.mock.calls[0]?.[1]).toContain("Failed to create session");
+    expect(failedModelBootstrap.api.sendMessage.mock.calls[0]?.[1]).toContain("bootstrap failed");
 
     const noModels = setupBot({
       piSessionOverrides: {
@@ -1441,7 +1761,9 @@ describe("createBot", () => {
 
     expect(api.setMyCommands).toHaveBeenCalledWith([
       { command: "start", description: "Welcome and session info" },
+      { command: "help", description: "Show commands and usage tips" },
       { command: "new", description: "Start a new session" },
+      { command: "retry", description: "Retry the last prompt in this chat/topic" },
       { command: "handback", description: "Hand session back to Pi CLI" },
       { command: "abort", description: "Cancel current operation" },
       { command: "session", description: "Current session details" },
@@ -1505,7 +1827,7 @@ describe("createBot", () => {
   });
 
   it("handles in-memory handback (no sessionFile)", async () => {
-    const { bot, api } = setupBot({
+    const { bot, api, registry } = setupBot({
       piSessionOverrides: {
         handback: vi.fn().mockResolvedValue({
           sessionFile: undefined,
@@ -1518,6 +1840,9 @@ describe("createBot", () => {
 
     expect(api.sendMessage.mock.calls[0]?.[1]).toContain("Session was in-memory");
     expect(api.sendMessage.mock.calls[0]?.[1]).toContain("No file to resume");
+    expect((registry.registry.remove as ReturnType<typeof vi.fn>)).toHaveBeenCalledWith({
+      chatId: ALLOWED_CHAT_ID,
+    });
   });
 
   it("handles handback error", async () => {

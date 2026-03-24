@@ -5,13 +5,15 @@ TelePi is a Telegram bridge for the [Pi coding agent](https://github.com/badlogi
 ## Features
 
 - **Bi-directional hand-off**: Move sessions CLI → Telegram (`/handoff`) and back (`/handback`)
+- **Per-chat/topic sessions**: Every Telegram chat or forum topic gets its own Pi session, picker state, and retry history
 - **Voice messages**: Send a voice note or audio file and TelePi transcribes it into a Pi prompt
 - **Local or cloud transcription**: [Parakeet CoreML](https://github.com/badlogic/parakeet-coreml) (free, private, on-device) or OpenAI Whisper (cloud)
 - **Session tree navigation**: Browse, branch, and label your Pi session history with `/tree`, `/branch`, `/label`
 - **Cross-workspace sessions**: Browse and switch between sessions from any project
 - **Model switching**: Change AI models on the fly via `/model`
 - **Workspace-aware `/new`**: Create sessions in any known project workspace
-- **Native Telegram UX**: Typing indicators, inline keyboards, HTML-formatted responses, auto-retry on rate limits
+- **Helpful recovery commands**: `/help` for quick usage guidance and `/retry` to resend the last prompt in the current chat/topic
+- **Native Telegram UX**: Topic-safe inline keyboards, typing indicators, HTML-formatted responses, friendly user-facing errors, auto-retry on rate limits
 - **Security**: Telegram user allowlist, workspace-scoped tools, Docker support
 
 ## Prerequisites
@@ -53,7 +55,9 @@ TelePi is a Telegram bridge for the [Pi coding agent](https://github.com/badlogi
 | Command | Description |
 |---------|-------------|
 | `/start` | Welcome message, session info, and voice backend status |
+| `/help` | Quick command reference and usage tips |
 | `/new` | Create a fresh session (shows workspace picker if multiple known) |
+| `/retry` | Re-send the last prompt in the current chat/topic |
 | `/handback` | Hand session back to Pi CLI (copies resume command to clipboard) |
 | `/abort` | Cancel the current Pi operation |
 | `/session` | Show current session details (ID, file, workspace, model) |
@@ -63,6 +67,8 @@ TelePi is a Telegram bridge for the [Pi coding agent](https://github.com/badlogi
 | `/tree` | View the session entry tree; navigate with inline buttons |
 | `/branch <id>` | Navigate to a specific entry ID (with confirmation) |
 | `/label [args]` | Add or clear labels on entries for easy reference |
+
+Sessions, inline keyboards, and `/retry` state are isolated per Telegram chat/topic, so forum topics can be used independently without colliding with each other.
 
 ## Voice Messages
 
@@ -308,18 +314,19 @@ The compose file:
 ## Architecture
 
 ```
-Telegram ←→ Grammy bot (auto-retry, HTML formatting, inline keyboards)
+Telegram ←→ Grammy bot (auto-retry, topic-aware routing, inline keyboards)
                 |
                 ├── Voice handler ──→ voice.ts (Parakeet | OpenAI Whisper)
                 |                         |
                 |                    ffmpeg decode
                 v
-         PiSessionService (tracks current workspace)
+         PiSessionRegistry (one PiSessionService per chat/topic)
                 |
+                ├── PiSessionService       ──→ current workspace + session state
                 ├── AgentSession (Pi SDK)  ──→ ~/.pi/agent/sessions/
-                ├── ModelRegistry           ──→ ~/.pi/agent/auth.json
-                ├── SessionTree             ──→ tree.ts (render/navigate)
-                └── Coding tools            ──→ current workspace directory
+                ├── ModelRegistry          ──→ ~/.pi/agent/auth.json
+                ├── SessionTree            ──→ tree.ts (render/navigate)
+                └── Coding tools           ──→ current workspace directory
 ```
 
 ## Development

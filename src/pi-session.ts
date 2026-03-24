@@ -41,6 +41,11 @@ export interface PiSessionInfo {
   model?: string;
 }
 
+export interface PiSessionContext {
+  chatId: number | string;
+  messageThreadId?: number;
+}
+
 interface PiSessionHandle {
   session: AgentSession;
   modelRegistry: ModelRegistry;
@@ -428,6 +433,124 @@ export class PiSessionService {
 
   private getModelRegistry(): ModelRegistry {
     return this.getHandle().modelRegistry;
+  }
+}
+
+export function getPiSessionContextKey(context: PiSessionContext): string {
+  return `${String(context.chatId)}::${context.messageThreadId ?? "root"}`;
+}
+
+export class PiSessionRegistry {
+  private readonly services = new Map<string, PiSessionService>();
+  private readonly inflight = new Map<string, Promise<PiSessionService>>();
+  private readonly generations = new Map<string, number>();
+  private bootstrapSessionPath?: string;
+
+  private constructor(private readonly config: TelePiConfig) {
+    this.bootstrapSessionPath = config.piSessionPath;
+  }
+
+  static async create(config: TelePiConfig): Promise<PiSessionRegistry> {
+    return new PiSessionRegistry(config);
+  }
+
+  has(context: PiSessionContext): boolean {
+    return this.services.has(getPiSessionContextKey(context));
+  }
+
+  get(context: PiSessionContext): PiSessionService | undefined {
+    return this.services.get(getPiSessionContextKey(context));
+  }
+
+  getInfo(context: PiSessionContext): PiSessionInfo {
+    return this.get(context)?.getInfo() ?? {
+      sessionId: "(no active session)",
+      sessionFile: undefined,
+      workspace: this.config.workspace,
+      sessionName: undefined,
+      modelFallbackMessage: undefined,
+      model: undefined,
+    };
+  }
+
+  async getOrCreate(context: PiSessionContext): Promise<PiSessionService> {
+    const key = getPiSessionContextKey(context);
+    const existing = this.services.get(key);
+    if (existing) {
+      return existing;
+    }
+
+    const inflight = this.inflight.get(key);
+    if (inflight) {
+      return inflight;
+    }
+
+    const generation = this.bumpGeneration(key);
+    const createPromise = PiSessionService.create(this.createServiceConfig())
+      .then((service) => {
+        this.inflight.delete(key);
+
+        if (this.generations.get(key) !== generation) {
+          service.dispose();
+          const replacement = this.services.get(key);
+          if (replacement) {
+            return replacement;
+          }
+          throw new Error("Session removed during initialization");
+        }
+
+        this.services.set(key, service);
+        return service;
+      })
+      .catch((error) => {
+        this.inflight.delete(key);
+        throw error;
+      });
+
+    this.inflight.set(key, createPromise);
+    return createPromise;
+  }
+
+  remove(context: PiSessionContext): void {
+    const key = getPiSessionContextKey(context);
+    this.bumpGeneration(key);
+    const service = this.services.get(key);
+    service?.dispose();
+    this.services.delete(key);
+    this.inflight.delete(key);
+  }
+
+  dispose(): void {
+    const allKeys = new Set<string>([...this.services.keys(), ...this.inflight.keys()]);
+    for (const key of allKeys) {
+      this.bumpGeneration(key);
+    }
+    for (const service of this.services.values()) {
+      service.dispose();
+    }
+    this.services.clear();
+    this.inflight.clear();
+  }
+
+  private createServiceConfig(): TelePiConfig {
+    const initialSessionPath = this.consumeBootstrapSessionPath();
+    return {
+      ...this.config,
+      telegramAllowedUserIdSet: new Set(this.config.telegramAllowedUserIds),
+      piSessionPath: initialSessionPath,
+    };
+  }
+
+  private consumeBootstrapSessionPath(): string | undefined {
+    const sessionPath = this.bootstrapSessionPath;
+    this.bootstrapSessionPath = undefined;
+    return sessionPath;
+  }
+
+  private bumpGeneration(key: string): number {
+    const nextGeneration = (this.generations.get(key) ?? 0) + 1;
+    this.generations.set(key, nextGeneration);
+    return nextGeneration;
   }
 }
 
