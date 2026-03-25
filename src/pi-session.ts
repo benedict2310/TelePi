@@ -1,4 +1,5 @@
-import { existsSync } from "node:fs";
+import { closeSync, existsSync, openSync, readSync } from "node:fs";
+import { homedir } from "node:os";
 import path from "node:path";
 
 import {
@@ -60,11 +61,24 @@ export interface PiSessionContext {
   messageThreadId?: number;
 }
 
+export interface ResolvedSessionReference {
+  id: string;
+  path: string;
+  cwd?: string;
+  workspaceWarning?: string;
+  matchType: "path" | "id" | "prefix";
+}
+
 interface PiSessionHandle {
   session: AgentSession;
   modelRegistry: ModelRegistry;
   modelFallbackMessage?: string;
   dispose: () => void;
+}
+
+interface SessionHeaderInfo {
+  id: string;
+  cwd?: string;
 }
 
 /**
@@ -363,11 +377,117 @@ export class PiSessionService {
     return `${model.provider}/${model.id}`;
   }
 
+  async resolveSessionReference(sessionReference: string): Promise<ResolvedSessionReference> {
+    const normalizedReference = sessionReference.trim();
+    if (!normalizedReference) {
+      throw new Error("Session reference cannot be empty.");
+    }
+
+    const remappedReferencePath = resolveSessionPathForRuntime(normalizedReference);
+    const looksLikePath = normalizedReference.includes("/")
+      || normalizedReference.includes("\\")
+      || normalizedReference.endsWith(".jsonl")
+      || normalizedReference.startsWith("~");
+    if (looksLikePath) {
+      if (!existsSync(remappedReferencePath)) {
+        throw new Error(`Saved session not found: ${normalizedReference}`);
+      }
+
+      const header = readSessionHeader(remappedReferencePath);
+
+      let indexedWorkspace: string | undefined;
+      try {
+        const indexedMatch = (await this.listAllSessions()).find((session) =>
+          session.path === normalizedReference
+          || session.path === remappedReferencePath
+          || resolveSessionPathForRuntime(session.path) === remappedReferencePath
+        );
+        indexedWorkspace = indexedMatch?.cwd;
+      } catch {
+        indexedWorkspace = undefined;
+      }
+
+      const workspaceResolution = this.resolveSessionWorkspace(indexedWorkspace ?? header?.cwd);
+      return {
+        id: header?.id ?? path.basename(remappedReferencePath),
+        path: remappedReferencePath,
+        cwd: workspaceResolution.cwd,
+        ...(workspaceResolution.workspaceWarning
+          ? { workspaceWarning: workspaceResolution.workspaceWarning }
+          : {}),
+        matchType: "path",
+      };
+    }
+
+    const allSessions = await this.listAllSessions();
+    const currentWorkspaceSessions = allSessions.filter((session) => session.cwd === this.currentWorkspace);
+
+    const exactIdMatch = currentWorkspaceSessions.find((session) => session.id === normalizedReference)
+      ?? allSessions.find((session) => session.id === normalizedReference);
+    if (exactIdMatch) {
+      const workspaceResolution = this.resolveSessionWorkspace(exactIdMatch.cwd);
+      return {
+        id: exactIdMatch.id,
+        path: exactIdMatch.path,
+        cwd: workspaceResolution.cwd,
+        ...(workspaceResolution.workspaceWarning
+          ? { workspaceWarning: workspaceResolution.workspaceWarning }
+          : {}),
+        matchType: "id",
+      };
+    }
+
+    const localPrefixMatches = currentWorkspaceSessions.filter((session) => session.id.startsWith(normalizedReference));
+    if (localPrefixMatches.length === 1) {
+      const [prefixMatch] = localPrefixMatches;
+      const workspaceResolution = this.resolveSessionWorkspace(prefixMatch.cwd);
+      return {
+        id: prefixMatch.id,
+        path: prefixMatch.path,
+        cwd: workspaceResolution.cwd,
+        ...(workspaceResolution.workspaceWarning
+          ? { workspaceWarning: workspaceResolution.workspaceWarning }
+          : {}),
+        matchType: "prefix",
+      };
+    }
+
+    if (localPrefixMatches.length > 1) {
+      throw new Error(
+        `Session ID prefix "${normalizedReference}" matches ${localPrefixMatches.length} saved sessions in the current workspace. Use more characters or /sessions to pick one.`,
+      );
+    }
+
+    const prefixMatches = allSessions.filter((session) => session.id.startsWith(normalizedReference));
+    if (prefixMatches.length === 1) {
+      const [prefixMatch] = prefixMatches;
+      const workspaceResolution = this.resolveSessionWorkspace(prefixMatch.cwd);
+      return {
+        id: prefixMatch.id,
+        path: prefixMatch.path,
+        cwd: workspaceResolution.cwd,
+        ...(workspaceResolution.workspaceWarning
+          ? { workspaceWarning: workspaceResolution.workspaceWarning }
+          : {}),
+        matchType: "prefix",
+      };
+    }
+
+    if (prefixMatches.length > 1) {
+      throw new Error(
+        `Session ID prefix "${normalizedReference}" matches ${prefixMatches.length} saved sessions. Use more characters or /sessions to pick one.`,
+      );
+    }
+
+    throw new Error(
+      `No saved session matches "${normalizedReference}". Use /sessions to browse, or pass a full session path or session ID.`,
+    );
+  }
+
   async resolveWorkspaceForSession(sessionPath: string): Promise<string | undefined> {
     try {
-      const allSessions = await SessionManager.listAll();
-      const match = allSessions.find((s) => s.path === sessionPath);
-      return match?.cwd;
+      const match = await this.resolveSessionReference(sessionPath);
+      return match.cwd;
     } catch {
       return undefined;
     }
@@ -385,6 +505,35 @@ export class PiSessionService {
       console.error("Failed to dispose previous session:", error);
     }
     return this.getInfo();
+  }
+
+  private resolveSessionWorkspace(workspace: string | undefined): {
+    cwd?: string;
+    workspaceWarning?: string;
+  } {
+    const resolvedWorkspace = resolveWorkspacePathForRuntime(workspace);
+    if (resolvedWorkspace) {
+      return { cwd: resolvedWorkspace };
+    }
+
+    if (!workspace) {
+      return {};
+    }
+
+    return {
+      cwd: undefined,
+      workspaceWarning:
+        `Saved workspace ${workspace} is unavailable in this TelePi runtime. Continuing in the current workspace instead.`,
+    };
+  }
+
+  private getUnavailableSavedWorkspace(sessionFile: string): string | undefined {
+    const header = readSessionHeader(sessionFile);
+    if (!header?.cwd || header.cwd === this.currentWorkspace) {
+      return undefined;
+    }
+
+    return resolveWorkspacePathForRuntime(header.cwd) ? undefined : header.cwd;
   }
 
   getTree(): SessionTreeNode[] {
@@ -444,6 +593,15 @@ export class PiSessionService {
       sessionFile: this.handle?.session.sessionFile,
       workspace: this.currentWorkspace,
     };
+
+    const unavailableWorkspace = info.sessionFile
+      ? this.getUnavailableSavedWorkspace(info.sessionFile)
+      : undefined;
+    if (unavailableWorkspace) {
+      throw new Error(
+        `Cannot hand back this session while its saved workspace is unavailable (${unavailableWorkspace}). Reopen it from a valid workspace first.`,
+      );
+    }
 
     try {
       this.handle?.dispose();
@@ -604,25 +762,29 @@ function createSessionManager(
 ): SessionManager {
   const sessionPath = overrideSessionPath ?? config.piSessionPath;
   if (sessionPath) {
-    return SessionManager.open(resolveSessionPathForRuntime(sessionPath));
+    const runtimeSessionPath = resolveSessionPathForRuntime(sessionPath);
+    const sessionManager = SessionManager.create(workspace, path.resolve(runtimeSessionPath, ".."));
+    sessionManager.setSessionFile(runtimeSessionPath);
+    return sessionManager;
   }
 
   return SessionManager.create(workspace);
 }
 
 function resolveSessionPathForRuntime(sessionPath: string): string {
-  if (existsSync(sessionPath)) {
-    return sessionPath;
+  const expandedPath = expandHomePath(sessionPath);
+  if (existsSync(expandedPath)) {
+    return expandedPath;
   }
 
   // Remap host paths to container paths (e.g. /Users/<user>/.pi/agent/... → /home/telepi/.pi/agent/...)
   const marker = `${path.sep}.pi${path.sep}agent${path.sep}`;
-  const markerIndex = sessionPath.lastIndexOf(marker);
+  const markerIndex = expandedPath.lastIndexOf(marker);
   if (markerIndex === -1) {
-    return sessionPath;
+    return expandedPath;
   }
 
-  const suffix = sessionPath.slice(markerIndex + marker.length);
+  const suffix = expandedPath.slice(markerIndex + marker.length);
   for (const base of ["/home/telepi/.pi/agent", "/root/.pi/agent"]) {
     const remapped = path.resolve(base, suffix);
     // Ensure remapped path stays within the base directory (prevent traversal)
@@ -634,7 +796,59 @@ function resolveSessionPathForRuntime(sessionPath: string): string {
     }
   }
 
-  return sessionPath;
+  return expandedPath;
+}
+
+function expandHomePath(filePath: string): string {
+  if (filePath === "~") {
+    return homedir();
+  }
+
+  if (filePath.startsWith("~/") || filePath.startsWith("~\\")) {
+    return path.join(homedir(), filePath.slice(2));
+  }
+
+  return filePath;
+}
+
+function readSessionHeader(sessionPath: string): SessionHeaderInfo | undefined {
+  try {
+    const fd = openSync(sessionPath, "r");
+    try {
+      const buffer = Buffer.alloc(1024);
+      const bytesRead = readSync(fd, buffer, 0, buffer.length, 0);
+      const firstLine = buffer.toString("utf8", 0, bytesRead).split("\n", 1)[0]?.trim();
+      if (!firstLine) {
+        return undefined;
+      }
+
+      const parsed = JSON.parse(firstLine) as { type?: string; id?: unknown; cwd?: unknown };
+      if (parsed.type !== "session" || typeof parsed.id !== "string") {
+        return undefined;
+      }
+
+      return {
+        id: parsed.id,
+        cwd: typeof parsed.cwd === "string" ? parsed.cwd : undefined,
+      };
+    } finally {
+      closeSync(fd);
+    }
+  } catch {
+    return undefined;
+  }
+}
+
+function resolveWorkspacePathForRuntime(workspace: string | undefined): string | undefined {
+  if (!workspace) {
+    return undefined;
+  }
+
+  if (existsSync(workspace)) {
+    return workspace;
+  }
+
+  return undefined;
 }
 
 function resolveModelOverride(

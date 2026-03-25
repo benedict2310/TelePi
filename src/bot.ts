@@ -790,16 +790,22 @@ export function createBot(config: TelePiConfig, sessionRegistry: PiSessionRegist
 
     const piSession = await getOrCreateSession(target);
     const rawText = ctx.message?.text ?? "";
-    const sessionPath = rawText.replace(/^\/(?:sessions|switch)(?:@\w+)?\s*/, "").trim();
-    if (sessionPath) {
+    const sessionReference = rawText.replace(/^\/(?:sessions|switch)(?:@\w+)?\s*/, "").trim();
+    if (sessionReference) {
       switchingContexts.add(contextKey);
       try {
-        const resolvedWorkspace = await piSession.resolveWorkspaceForSession(sessionPath);
-        const info = await piSession.switchSession(sessionPath, resolvedWorkspace);
+        const resolvedSession = await piSession.resolveSessionReference(sessionReference);
+        const info = await piSession.switchSession(resolvedSession.path, resolvedSession.cwd);
         clearContextPickers(contextKey);
         clearContextPromptMemory(contextKey);
-        const plainText = `Switched session.\n\n${renderSessionInfoPlain(info)}`;
-        const html = `<b>Switched session.</b>\n\n${renderSessionInfoHTML(info)}`;
+        const workspaceNotePlain = resolvedSession.workspaceWarning
+          ? `\n\nWorkspace note: ${resolvedSession.workspaceWarning}`
+          : "";
+        const workspaceNoteHTML = resolvedSession.workspaceWarning
+          ? `\n\n<b>Workspace note:</b> ${escapeHTML(resolvedSession.workspaceWarning)}`
+          : "";
+        const plainText = `Switched session.${workspaceNotePlain}\n\n${renderSessionInfoPlain(info)}`;
+        const html = `<b>Switched session.</b>${workspaceNoteHTML}\n\n${renderSessionInfoHTML(info)}`;
         await safeReply(ctx, html, { fallbackText: plainText }, target);
       } catch (error) {
         const failure = renderFailedText(error);
@@ -1356,11 +1362,18 @@ export function createBot(config: TelePiConfig, sessionRegistry: PiSessionRegist
 
     switchingContexts.add(contextKey);
     try {
-      const info = await piSession.switchSession(sessions[index].path, sessions[index].cwd);
+      const resolvedSession = await piSession.resolveSessionReference(sessions[index].path);
+      const info = await piSession.switchSession(resolvedSession.path, resolvedSession.cwd);
       clearPendingTreeKeyboard(contextKey);
       clearContextPromptMemory(contextKey);
-      const plainText = `Switched!\n\n${renderSessionInfoPlain(info)}`;
-      const html = `<b>Switched!</b>\n\n${renderSessionInfoHTML(info)}`;
+      const workspaceNotePlain = resolvedSession.workspaceWarning
+        ? `\n\nWorkspace note: ${resolvedSession.workspaceWarning}`
+        : "";
+      const workspaceNoteHTML = resolvedSession.workspaceWarning
+        ? `\n\n<b>Workspace note:</b> ${escapeHTML(resolvedSession.workspaceWarning)}`
+        : "";
+      const plainText = `Switched!${workspaceNotePlain}\n\n${renderSessionInfoPlain(info)}`;
+      const html = `<b>Switched!</b>${workspaceNoteHTML}\n\n${renderSessionInfoHTML(info)}`;
 
       if (messageId) {
         await safeEditMessage(bot, target, messageId, html, { fallbackText: plainText });
@@ -1892,7 +1905,7 @@ export async function registerCommands(bot: Bot<Context>): Promise<void> {
     { command: "handback", description: "Hand session back to Pi CLI" },
     { command: "abort", description: "Cancel current operation" },
     { command: "session", description: "Current session details" },
-    { command: "sessions", description: "List and switch sessions (or /sessions <path>)" },
+    { command: "sessions", description: "List and switch sessions (or /sessions <path|id>)" },
     { command: "model", description: "Switch AI model" },
     { command: "tree", description: "View and navigate the session tree" },
     { command: "branch", description: "Navigate to a tree entry (/branch <id>)" },
@@ -1911,7 +1924,7 @@ function renderHelpPlain(info: PiSessionInfo): string {
     "/abort — cancel the current Pi operation",
     "/session — show current session details",
     "/sessions — list and switch saved sessions",
-    "/sessions <path> — switch directly to a session file",
+    "/sessions <path|id> — switch directly to a session file or session ID",
     "/model — switch AI model",
     "/tree — view the session tree",
     "/branch <id> — navigate to a tree entry",
@@ -1936,7 +1949,7 @@ function renderHelpHTML(info: PiSessionInfo): string {
     "<code>/abort</code> — cancel the current Pi operation",
     "<code>/session</code> — show current session details",
     "<code>/sessions</code> — list and switch saved sessions",
-    "<code>/sessions &lt;path&gt;</code> — switch directly to a session file",
+    "<code>/sessions &lt;path|id&gt;</code> — switch directly to a session file or session ID",
     "<code>/model</code> — switch AI model",
     "<code>/tree</code> — view the session tree",
     "<code>/branch &lt;id&gt;</code> — navigate to a tree entry",

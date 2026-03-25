@@ -214,6 +214,30 @@ function createMockPiSession(overrides: Partial<PiSessionService> = {}) {
     navigateTree: vi.fn().mockResolvedValue({ cancelled: false }),
     setLabel: vi.fn(),
     getLabels: vi.fn().mockReturnValue([{ id: "leaf5678", label: "saved", description: 'user: "Other leaf"' }]),
+    resolveSessionReference: vi.fn().mockImplementation(async (reference: string) => {
+      const sessions = await session.listAllSessions();
+      const pathMatch = sessions.find((savedSession: { path: string }) => savedSession.path === reference);
+      if (pathMatch) {
+        return {
+          id: pathMatch.id,
+          path: pathMatch.path,
+          cwd: pathMatch.cwd,
+          matchType: "path",
+        };
+      }
+
+      const idMatch = sessions.find((savedSession: { id: string }) => savedSession.id === reference);
+      if (idMatch) {
+        return {
+          id: idMatch.id,
+          path: idMatch.path,
+          cwd: idMatch.cwd,
+          matchType: "id",
+        };
+      }
+
+      return { id: "s1", path: reference, cwd: "/workspace/A", matchType: "path" };
+    }),
     resolveWorkspaceForSession: vi.fn().mockResolvedValue("/workspace/A"),
     prompt: vi.fn().mockResolvedValue(undefined),
     subscribe: vi.fn().mockImplementation((nextCallbacks: PiSessionCallbacks) => {
@@ -930,26 +954,43 @@ describe("createBot", () => {
     await topicOnePending;
   });
 
-  it("switches directly via /sessions <path> and shows errors when switching fails", async () => {
+  it("switches directly via /sessions <path|id> and shows errors when switching fails", async () => {
     const ok = setupBot();
     await ok.bot.handleUpdate(createTestUpdate({ message: { text: "/sessions /saved/session.jsonl" } }));
-    expect(ok.pi.service.resolveWorkspaceForSession).toHaveBeenCalledWith("/saved/session.jsonl");
+    expect(ok.pi.service.resolveSessionReference).toHaveBeenCalledWith("/saved/session.jsonl");
     expect(ok.pi.service.switchSession).toHaveBeenCalledWith(
       "/saved/session.jsonl",
       "/workspace/A",
     );
     expect(ok.api.sendMessage.mock.calls[0]?.[1]).toContain("Switched session");
 
+    const byId = setupBot({
+      piSessionOverrides: {
+        resolveSessionReference: vi.fn().mockResolvedValue({
+          id: "s1",
+          path: "/saved/session.jsonl",
+          cwd: "/workspace/A",
+          matchType: "prefix",
+        }),
+      },
+    });
+    await byId.bot.handleUpdate(createTestUpdate({ message: { text: "/sessions s1" } }));
+    expect(byId.pi.service.resolveSessionReference).toHaveBeenCalledWith("s1");
+    expect(byId.pi.service.switchSession).toHaveBeenCalledWith(
+      "/saved/session.jsonl",
+      "/workspace/A",
+    );
+
     const failure = setupBot({
       piSessionOverrides: {
-        switchSession: vi.fn().mockRejectedValue(new Error("switch failed")),
+        resolveSessionReference: vi.fn().mockRejectedValue(new Error("ambiguous session id")),
       },
     });
     await failure.bot.handleUpdate(
-      createTestUpdate({ message: { text: "/sessions /broken/session.jsonl" } }),
+      createTestUpdate({ message: { text: "/sessions deadbeef" } }),
     );
     expect(failure.api.sendMessage.mock.calls[0]?.[1]).toContain("Failed:");
-    expect(failure.api.sendMessage.mock.calls[0]?.[1]).toContain("switch failed");
+    expect(failure.api.sendMessage.mock.calls[0]?.[1]).toContain("ambiguous session id");
   });
 
   it("handles switch callbacks, expired picks, and wait states", async () => {
@@ -958,6 +999,7 @@ describe("createBot", () => {
     await ready.bot.handleUpdate(createCallbackUpdate("switch_1"));
 
     expect(ready.api.answerCallbackQuery).toHaveBeenCalledWith("cb_1", { text: "Switching..." });
+    expect(ready.pi.service.resolveSessionReference).toHaveBeenCalledWith("/s2.jsonl");
     expect(ready.pi.service.switchSession).toHaveBeenCalledWith("/s2.jsonl", "/workspace/B");
     expect(ready.api.editMessageText).toHaveBeenCalled();
 
@@ -1913,7 +1955,7 @@ describe("createBot", () => {
       { command: "handback", description: "Hand session back to Pi CLI" },
       { command: "abort", description: "Cancel current operation" },
       { command: "session", description: "Current session details" },
-      { command: "sessions", description: "List and switch sessions (or /sessions <path>)" },
+      { command: "sessions", description: "List and switch sessions (or /sessions <path|id>)" },
       { command: "model", description: "Switch AI model" },
       { command: "tree", description: "View and navigate the session tree" },
       { command: "branch", description: "Navigate to a tree entry (/branch <id>)" },

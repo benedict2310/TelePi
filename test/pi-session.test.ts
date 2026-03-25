@@ -1,3 +1,7 @@
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { homedir, tmpdir } from "node:os";
+import path from "node:path";
+
 import { vi } from "vitest";
 
 import type { TelePiConfig } from "../src/config.js";
@@ -127,7 +131,17 @@ const mockState = vi.hoisted(() => {
   });
 
   const SessionManager = {
-    create: vi.fn().mockImplementation((workspace: string) => ({ kind: "create", workspace })),
+    create: vi.fn().mockImplementation((workspace: string) => {
+      const manager: any = {
+        kind: "create",
+        workspace,
+        sessionPath: undefined,
+        setSessionFile: vi.fn().mockImplementation((sessionPath: string) => {
+          manager.sessionPath = sessionPath;
+        }),
+      };
+      return manager;
+    }),
     open: vi.fn().mockImplementation((sessionPath: string) => ({ kind: "open", sessionPath })),
     listAll: vi.fn().mockResolvedValue(defaultSessions()),
   };
@@ -285,9 +299,12 @@ describe("PiSessionService", () => {
 
     const info = await service.switchSession("/sessions/saved.jsonl", "/workspace/projectA");
 
-    expect(mockState.SessionManager.open).toHaveBeenCalledWith("/sessions/saved.jsonl");
+    expect(mockState.SessionManager.create).toHaveBeenLastCalledWith("/workspace/projectA", "/sessions");
     expect(mockState.createAgentSession).toHaveBeenLastCalledWith(
-      expect.objectContaining({ cwd: "/workspace/projectA" }),
+      expect.objectContaining({
+        cwd: "/workspace/projectA",
+        sessionManager: expect.objectContaining({ sessionPath: "/sessions/saved.jsonl" }),
+      }),
     );
     expect(previousSession.dispose).toHaveBeenCalledTimes(1);
     expect(info.workspace).toBe("/workspace/projectA");
@@ -324,6 +341,28 @@ describe("PiSessionService", () => {
       sessionFile: undefined,
       workspace: "/workspace/base",
     });
+  });
+
+  it("blocks handback when continuing a session in a fallback workspace", async () => {
+    const tempDir = mkdtempSync(path.join(tmpdir(), "telepi-session-"));
+    const sessionPath = path.join(tempDir, "moved.jsonl");
+    writeFileSync(
+      sessionPath,
+      `${JSON.stringify({
+        type: "session",
+        version: 3,
+        id: "moved1234",
+        timestamp: "2025-01-03T00:00:00.000Z",
+        cwd: "/definitely/missing/workspace",
+      })}\n`,
+    );
+    const service = await PiSessionService.create(createConfig());
+
+    await service.switchSession(sessionPath, "/workspace/base");
+    await expect(service.handback()).rejects.toThrow(
+      "Cannot hand back this session while its saved workspace is unavailable (/definitely/missing/workspace).",
+    );
+    expect(service.hasActiveSession()).toBe(true);
   });
 
   it("aborts the active session and becomes a no-op without one", async () => {
@@ -400,12 +439,330 @@ describe("PiSessionService", () => {
     await expect(service.listWorkspaces()).resolves.toEqual(["/workspace/a", "/workspace/z"]);
   });
 
-  it("resolves a workspace for a saved session path", async () => {
+  it("resolves a saved session reference by path, exact ID, or unique ID prefix", async () => {
+    const tempDir = mkdtempSync(path.join(tmpdir(), "telepi-session-"));
+    const tempDirTwo = mkdtempSync(path.join(tmpdir(), "telepi-session-"));
+    const sessionPath = path.join(tempDir, "one.jsonl");
+    writeFileSync(
+      sessionPath,
+      `${JSON.stringify({
+        type: "session",
+        version: 3,
+        id: "abc12345",
+        timestamp: "2025-01-03T00:00:00.000Z",
+        cwd: tempDir,
+      })}\n`,
+    );
+    mockState.SessionManager.listAll.mockResolvedValue([
+      {
+        id: "abc12345",
+        firstMessage: "One",
+        path: sessionPath,
+        messageCount: 1,
+        cwd: tempDir,
+        modified: new Date("2025-01-03T00:00:00.000Z"),
+      },
+      {
+        id: "def67890",
+        firstMessage: "Two",
+        path: "/sessions/two.jsonl",
+        messageCount: 1,
+        cwd: tempDirTwo,
+        modified: new Date("2025-01-02T00:00:00.000Z"),
+      },
+    ]);
     const service = await PiSessionService.create(createConfig());
 
-    await expect(service.resolveWorkspaceForSession("/sessions/s1.jsonl")).resolves.toBe(
-      "/workspace/projectA",
+    await expect(service.resolveSessionReference(sessionPath)).resolves.toEqual({
+      id: "abc12345",
+      path: sessionPath,
+      cwd: tempDir,
+      matchType: "path",
+    });
+    await expect(service.resolveSessionReference("def67890")).resolves.toEqual({
+      id: "def67890",
+      path: "/sessions/two.jsonl",
+      cwd: tempDirTwo,
+      matchType: "id",
+    });
+    await expect(service.resolveSessionReference("abc1")).resolves.toEqual({
+      id: "abc12345",
+      path: sessionPath,
+      cwd: tempDir,
+      matchType: "prefix",
+    });
+  });
+
+  it("falls back to an explicit existing session path even when the session index is unavailable", async () => {
+    mockState.SessionManager.listAll.mockRejectedValueOnce(new Error("boom"));
+    const tempDir = mkdtempSync(path.join(tmpdir(), "telepi-session-"));
+    const sessionPath = path.join(tempDir, "manual.jsonl");
+    writeFileSync(
+      sessionPath,
+      `${JSON.stringify({
+        type: "session",
+        version: 3,
+        id: "manual1234",
+        timestamp: "2025-01-03T00:00:00.000Z",
+        cwd: tempDir,
+      })}\n`,
     );
+    const service = await PiSessionService.create(createConfig());
+
+    await expect(service.resolveSessionReference(sessionPath)).resolves.toEqual({
+      id: "manual1234",
+      path: sessionPath,
+      cwd: tempDir,
+      matchType: "path",
+    });
+  });
+
+  it("falls back to the current workspace when an explicit session path has an unavailable workspace", async () => {
+    mockState.SessionManager.listAll.mockRejectedValueOnce(new Error("boom"));
+    const tempDir = mkdtempSync(path.join(tmpdir(), "telepi-session-"));
+    const sessionPath = path.join(tempDir, "moved.jsonl");
+    writeFileSync(
+      sessionPath,
+      `${JSON.stringify({
+        type: "session",
+        version: 3,
+        id: "moved1234",
+        timestamp: "2025-01-03T00:00:00.000Z",
+        cwd: "/definitely/missing/workspace",
+      })}\n`,
+    );
+    const service = await PiSessionService.create(createConfig());
+
+    await expect(service.resolveSessionReference(sessionPath)).resolves.toEqual({
+      id: "moved1234",
+      path: sessionPath,
+      cwd: undefined,
+      workspaceWarning:
+        "Saved workspace /definitely/missing/workspace is unavailable in this TelePi runtime. Continuing in the current workspace instead.",
+      matchType: "path",
+    });
+  });
+
+  it("expands ~ when switching by explicit session path", async () => {
+    mockState.SessionManager.listAll.mockRejectedValueOnce(new Error("boom"));
+    const tempDir = mkdtempSync(path.join(homedir(), "telepi-session-"));
+    const sessionPath = path.join(tempDir, "tilde.jsonl");
+    writeFileSync(
+      sessionPath,
+      `${JSON.stringify({
+        type: "session",
+        version: 3,
+        id: "tilde1234",
+        timestamp: "2025-01-03T00:00:00.000Z",
+        cwd: tempDir,
+      })}\n`,
+    );
+    const tildePath = sessionPath.replace(homedir(), "~");
+
+    try {
+      const service = await PiSessionService.create(createConfig());
+      await expect(service.resolveSessionReference(tildePath)).resolves.toEqual({
+        id: "tilde1234",
+        path: sessionPath,
+        cwd: tempDir,
+        matchType: "path",
+      });
+    } finally {
+      rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  it("allows explicit path recovery for existing session files with an invalid header", async () => {
+    mockState.SessionManager.listAll.mockRejectedValueOnce(new Error("boom"));
+    const tempDir = mkdtempSync(path.join(tmpdir(), "telepi-session-"));
+    const sessionPath = path.join(tempDir, "broken.jsonl");
+    writeFileSync(sessionPath, "not-json\n");
+    const service = await PiSessionService.create(createConfig());
+
+    await expect(service.resolveSessionReference(sessionPath)).resolves.toEqual({
+      id: "broken.jsonl",
+      path: sessionPath,
+      cwd: undefined,
+      matchType: "path",
+    });
+  });
+
+  it("accepts legacy session files without cwd when switching by explicit path", async () => {
+    mockState.SessionManager.listAll.mockRejectedValueOnce(new Error("boom"));
+    const tempDir = mkdtempSync(path.join(tmpdir(), "telepi-session-"));
+    const sessionPath = path.join(tempDir, "legacy.jsonl");
+    writeFileSync(
+      sessionPath,
+      `${JSON.stringify({
+        type: "session",
+        id: "legacy1234",
+      })}\n`,
+    );
+    const service = await PiSessionService.create(createConfig());
+
+    await expect(service.resolveSessionReference(sessionPath)).resolves.toEqual({
+      id: "legacy1234",
+      path: sessionPath,
+      cwd: undefined,
+      matchType: "path",
+    });
+  });
+
+  it("prefers exact ID matches over prefix matches", async () => {
+    const exactWorkspace = mkdtempSync(path.join(tmpdir(), "telepi-session-"));
+    const prefixWorkspace = mkdtempSync(path.join(tmpdir(), "telepi-session-"));
+    mockState.SessionManager.listAll.mockResolvedValueOnce([
+      {
+        id: "abc",
+        firstMessage: "Exact",
+        path: "/sessions/exact.jsonl",
+        messageCount: 1,
+        cwd: exactWorkspace,
+        modified: new Date("2025-01-03T00:00:00.000Z"),
+      },
+      {
+        id: "abcdef12",
+        firstMessage: "Prefix",
+        path: "/sessions/prefix.jsonl",
+        messageCount: 1,
+        cwd: prefixWorkspace,
+        modified: new Date("2025-01-02T00:00:00.000Z"),
+      },
+    ]);
+    const service = await PiSessionService.create(createConfig());
+
+    await expect(service.resolveSessionReference("abc")).resolves.toEqual({
+      id: "abc",
+      path: "/sessions/exact.jsonl",
+      cwd: exactWorkspace,
+      matchType: "id",
+    });
+  });
+
+  it("falls back to the current workspace for saved session IDs whose workspace is unavailable", async () => {
+    mockState.SessionManager.listAll.mockResolvedValueOnce([
+      {
+        id: "bad12345",
+        firstMessage: "Broken",
+        path: "/sessions/bad.jsonl",
+        messageCount: 1,
+        cwd: "/definitely/missing/workspace",
+        modified: new Date("2025-01-03T00:00:00.000Z"),
+      },
+    ]);
+    const service = await PiSessionService.create(createConfig());
+
+    await expect(service.resolveSessionReference("bad12345")).resolves.toEqual({
+      id: "bad12345",
+      path: "/sessions/bad.jsonl",
+      cwd: undefined,
+      workspaceWarning:
+        "Saved workspace /definitely/missing/workspace is unavailable in this TelePi runtime. Continuing in the current workspace instead.",
+      matchType: "id",
+    });
+  });
+
+  it("prefers a unique prefix match from the current workspace before searching globally", async () => {
+    const currentWorkspace = mkdtempSync(path.join(tmpdir(), "telepi-session-"));
+    const otherWorkspace = mkdtempSync(path.join(tmpdir(), "telepi-session-"));
+    mockState.SessionManager.listAll.mockResolvedValueOnce([
+      {
+        id: "abc-local",
+        firstMessage: "Local",
+        path: "/sessions/local.jsonl",
+        messageCount: 1,
+        cwd: currentWorkspace,
+        modified: new Date("2025-01-03T00:00:00.000Z"),
+      },
+      {
+        id: "abc-global",
+        firstMessage: "Global",
+        path: "/sessions/global.jsonl",
+        messageCount: 1,
+        cwd: otherWorkspace,
+        modified: new Date("2025-01-02T00:00:00.000Z"),
+      },
+    ]);
+    const service = await PiSessionService.create(createConfig({ workspace: currentWorkspace }));
+
+    await expect(service.resolveSessionReference("abc")).resolves.toEqual({
+      id: "abc-local",
+      path: "/sessions/local.jsonl",
+      cwd: currentWorkspace,
+      matchType: "prefix",
+    });
+  });
+
+  it("rejects ambiguous or missing saved session references", async () => {
+    mockState.SessionManager.listAll.mockResolvedValueOnce([
+      {
+        id: "abcd1111",
+        firstMessage: "One",
+        path: "/sessions/one.jsonl",
+        messageCount: 1,
+        cwd: "/workspace/one",
+        modified: new Date("2025-01-03T00:00:00.000Z"),
+      },
+      {
+        id: "abcd2222",
+        firstMessage: "Two",
+        path: "/sessions/two.jsonl",
+        messageCount: 1,
+        cwd: "/workspace/two",
+        modified: new Date("2025-01-02T00:00:00.000Z"),
+      },
+    ]);
+    const service = await PiSessionService.create(createConfig());
+
+    await expect(service.resolveSessionReference("abcd")).rejects.toThrow(
+      'Session ID prefix "abcd" matches 2 saved sessions.',
+    );
+    await expect(service.resolveSessionReference("missing")).rejects.toThrow(
+      'No saved session matches "missing".',
+    );
+    await expect(service.resolveSessionReference("/sessions/missing.jsonl")).rejects.toThrow(
+      "Saved session not found: /sessions/missing.jsonl",
+    );
+  });
+
+  it("resolves a workspace for a saved session reference", async () => {
+    const tempDir = mkdtempSync(path.join(tmpdir(), "telepi-session-"));
+    const secondWorkspace = mkdtempSync(path.join(tmpdir(), "telepi-session-"));
+    const sessionPath = path.join(tempDir, "s1.jsonl");
+    writeFileSync(
+      sessionPath,
+      `${JSON.stringify({
+        type: "session",
+        version: 3,
+        id: "s1",
+        timestamp: "2025-01-03T00:00:00.000Z",
+        cwd: tempDir,
+      })}\n`,
+    );
+    mockState.SessionManager.listAll.mockResolvedValue([
+      {
+        id: "s1",
+        firstMessage: "Hello",
+        path: sessionPath,
+        messageCount: 5,
+        cwd: tempDir,
+        modified: new Date("2025-01-02T00:00:00.000Z"),
+        name: "First",
+      },
+      {
+        id: "s2",
+        firstMessage: "World",
+        path: "/sessions/s2.jsonl",
+        messageCount: 3,
+        cwd: secondWorkspace,
+        modified: new Date("2025-01-01T00:00:00.000Z"),
+        name: "Second",
+      },
+    ]);
+    const service = await PiSessionService.create(createConfig());
+
+    await expect(service.resolveWorkspaceForSession(sessionPath)).resolves.toBe(tempDir);
+    await expect(service.resolveWorkspaceForSession("s2")).resolves.toBe(secondWorkspace);
   });
 
   it("returns undefined when resolving a workspace fails", async () => {
@@ -748,8 +1105,15 @@ describe("PiSessionService", () => {
     expect(rootAgain).toBe(rootService);
     expect(topicService).not.toBe(rootService);
     expect(mockState.createAgentSession).toHaveBeenCalledTimes(2);
-    expect(mockState.SessionManager.open).toHaveBeenCalledWith("/sessions/bootstrap.jsonl");
-    expect(mockState.SessionManager.create).toHaveBeenCalledWith("/workspace/base");
+    expect(mockState.SessionManager.create).toHaveBeenNthCalledWith(1, "/workspace/base", "/sessions");
+    expect(mockState.SessionManager.create).toHaveBeenNthCalledWith(2, "/workspace/base");
+    expect(mockState.createAgentSession).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({
+        cwd: "/workspace/base",
+        sessionManager: expect.objectContaining({ sessionPath: "/sessions/bootstrap.jsonl" }),
+      }),
+    );
   });
 
   it("deduplicates concurrent getOrCreate calls for the same context", async () => {
