@@ -18,7 +18,10 @@ const scriptDir = dirname(fileURLToPath(import.meta.url));
 const repoRoot = resolve(scriptDir, "..");
 const packageJsonPath = join(repoRoot, "package.json");
 const packageJson = JSON.parse(readFileSync(packageJsonPath, "utf8"));
-const releaseName = `${packageJson.name}-v${packageJson.version}`;
+const packageNameForArtifacts = packageJson.name.startsWith("@")
+  ? packageJson.name.split("/").at(-1)
+  : packageJson.name;
+const releaseName = `${packageNameForArtifacts}-v${packageJson.version}`;
 const artifactsDir = join(repoRoot, "artifacts");
 const tarballPath = join(artifactsDir, `${releaseName}.tar.gz`);
 const checksumPath = `${tarballPath}.sha256`;

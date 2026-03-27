@@ -1,6 +1,12 @@
 import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 
+import {
+  DOCKER_WORKSPACE_PATH,
+  getDefaultTelePiConfigPath,
+  resolvePathFromCwd,
+} from "./paths.js";
+
 export type ToolVerbosity = "all" | "summary" | "errors-only" | "none";
 
 export interface TelePiConfig {
@@ -13,8 +19,21 @@ export interface TelePiConfig {
   toolVerbosity: ToolVerbosity;
 }
 
+export type TelePiConfigPathSource = "explicit" | "default" | "cwd" | "missing";
+
+export interface TelePiConfigPathInfo {
+  explicitPath?: string;
+  defaultPath: string;
+  localPath: string;
+  resolvedPath?: string;
+  source: TelePiConfigPathSource;
+}
+
 export function loadConfig(): TelePiConfig {
-  loadEnvFile(path.resolve(process.cwd(), ".env"));
+  const envPath = getConfigEnvPathInfo().resolvedPath;
+  if (envPath) {
+    loadEnvFile(envPath);
+  }
 
   const telegramBotToken = requireEnv("TELEGRAM_BOT_TOKEN");
   const telegramAllowedUserIds = parseAllowedUserIds(requireEnv("TELEGRAM_ALLOWED_USER_IDS"));
@@ -34,15 +53,63 @@ export function loadConfig(): TelePiConfig {
   };
 }
 
+export function getConfigEnvPathInfo(): TelePiConfigPathInfo {
+  const explicitPath = optionalString(process.env.TELEPI_CONFIG);
+  const resolvedExplicitPath = explicitPath ? resolvePathFromCwd(explicitPath) : undefined;
+  const defaultPath = getDefaultTelePiConfigPath();
+  const localPath = path.resolve(process.cwd(), ".env");
+
+  if (resolvedExplicitPath) {
+    return {
+      explicitPath: resolvedExplicitPath,
+      defaultPath,
+      localPath,
+      resolvedPath: resolvedExplicitPath,
+      source: "explicit",
+    };
+  }
+
+  if (existsSync(localPath)) {
+    return {
+      defaultPath,
+      localPath,
+      resolvedPath: localPath,
+      source: "cwd",
+    };
+  }
+
+  if (existsSync(defaultPath)) {
+    return {
+      defaultPath,
+      localPath,
+      resolvedPath: defaultPath,
+      source: "default",
+    };
+  }
+
+  return {
+    defaultPath,
+    localPath,
+    source: "missing",
+  };
+}
+
 /**
  * Workspace is derived automatically:
  * - In Docker: /workspace (the mount point)
- * - Outside Docker: process.cwd() (same as running Pi normally)
+ * - TELEPI_WORKSPACE when set outside Docker
+ * - Otherwise: process.cwd() (same as running Pi normally)
  */
 function resolveWorkspace(): string {
   if (isRunningInDocker()) {
-    return "/workspace";
+    return DOCKER_WORKSPACE_PATH;
   }
+
+  const overriddenWorkspace = optionalString(process.env.TELEPI_WORKSPACE);
+  if (overriddenWorkspace) {
+    return resolvePathFromCwd(overriddenWorkspace);
+  }
+
   return process.cwd();
 }
 

@@ -1,5 +1,4 @@
 import { closeSync, existsSync, openSync, readSync } from "node:fs";
-import { homedir } from "node:os";
 import path from "node:path";
 
 import {
@@ -20,6 +19,7 @@ import {
   resolveInitialScopedModelSelection,
   resolveScopedModels,
 } from "./model-scope.js";
+import { expandHomePath } from "./paths.js";
 
 /**
  * Default timeout (seconds) for bash commands in TelePi sessions.
@@ -797,18 +797,6 @@ function resolveSessionPathForRuntime(sessionPath: string): string {
   }
 
   return expandedPath;
-}
-
-function expandHomePath(filePath: string): string {
-  if (filePath === "~") {
-    return homedir();
-  }
-
-  if (filePath.startsWith("~/") || filePath.startsWith("~\\")) {
-    return path.join(homedir(), filePath.slice(2));
-  }
-
-  return filePath;
 }
 
 function readSessionHeader(sessionPath: string): SessionHeaderInfo | undefined {

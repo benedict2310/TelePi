@@ -6,13 +6,14 @@
   <string>com.telepi</string>
 
   <key>WorkingDirectory</key>
-  <string>/ABSOLUTE/PATH/TO/TelePi</string>
+  <string>/ABSOLUTE/PATH/TO/WORKDIR</string>
 
   <key>ProgramArguments</key>
   <array>
     <string>/ABSOLUTE/PATH/TO/node</string>
-    <string>/ABSOLUTE/PATH/TO/TelePi/dist/index.js</string>
-  </array>
+    <string>/ABSOLUTE/PATH/TO/TelePi/dist/cli.js</string>
+    <string>start</string>
+  </array>__TELEPI_PATH_ENV_BLOCK__
 
   <key>RunAtLoad</key>
   <true/>

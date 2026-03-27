@@ -1,8 +1,42 @@
 {
-  "name": "telepi",
+  "name": "@benedict2310/telepi",
   "version": "0.1.0",
-  "private": true,
+  "description": "Telegram bridge for the Pi coding agent",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/benedict2310/TelePi.git"
+  },
+  "bugs": {
+    "url": "https://github.com/benedict2310/TelePi/issues"
+  },
+  "homepage": "https://github.com/benedict2310/TelePi#readme",
+  "keywords": [
+    "telegram",
+    "bot",
+    "pi",
+    "coding-agent",
+    "voice",
+    "handoff"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "engines": {
+    "node": ">=20"
+  },
   "type": "module",
+  "main": "./dist/index.js",
+  "bin": {
+    "telepi": "./dist/cli.js"
+  },
+  "files": [
+    "dist",
+    "extensions/telepi-handoff.ts",
+    "launchd/com.telepi.plist",
+    "README.md",
+    ".env.example"
+  ],
   "scripts": {
     "clean": "rm -rf dist artifacts",
     "dev": "tsx src/index.ts",
@@ -17,7 +51,8 @@
   "dependencies": {
     "@grammyjs/auto-retry": "^2.0.2",
     "@mariozechner/pi-coding-agent": "^0.60.0",
-    "grammy": "^1.35.0"
+    "grammy": "^1.35.0",
+    "minimatch": "^10.2.4"
   },
   "optionalDependencies": {
     "parakeet-coreml": "^2.2.0",

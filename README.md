@@ -22,64 +22,39 @@ TelePi is a Telegram bridge for the [Pi coding agent](https://github.com/badlogi
 - A Telegram bot token from [@BotFather](https://t.me/BotFather)
 - Pi installed locally with working credentials in `~/.pi/agent/auth.json`
 
-## Production Install from GitHub Releases
+## Quickstart (npm global install, macOS)
 
-Use GitHub Releases when you want a built artifact for a stable version without cloning the repo.
+This is the main install path for TelePi.
 
-1. Download `telepi-vX.Y.Z.tar.gz` and `telepi-vX.Y.Z.tar.gz.sha256` from the matching [GitHub Releases page](../../releases)
-2. Verify the checksum:
+1. Install TelePi globally:
    ```bash
-   shasum -c telepi-vX.Y.Z.tar.gz.sha256
+   npm install -g @benedict2310/telepi
    ```
-3. Extract the release artifact:
+2. Run the installer:
    ```bash
-   tar -xzf telepi-vX.Y.Z.tar.gz
-   cd telepi-vX.Y.Z
+   telepi setup
    ```
-4. Install production dependencies:
+   `telepi setup` will:
+   - create `~/.config/telepi/config.env` from `.env.example` if it does not exist
+   - install/update `~/Library/LaunchAgents/com.telepi.plist`
+   - install the Pi `/handoff` extension at `~/.pi/agent/extensions/telepi-handoff.ts`
+3. Edit the installed config at `~/.config/telepi/config.env`:
+   ```dotenv
+   TELEGRAM_BOT_TOKEN=your-bot-token-here
+   TELEGRAM_ALLOWED_USER_IDS=123456789
+   TELEPI_WORKSPACE=/absolute/path/to/your/main/project
+   ```
+   Notes:
+   - `TELEPI_WORKSPACE` is strongly recommended in installed mode so fresh Telegram sessions start in the right project
+   - `PI_SESSION_PATH` is usually injected automatically by `/handoff`
+   - `OPENAI_API_KEY`, `SHERPA_ONNX_MODEL_DIR`, `PI_MODEL`, and `TOOL_VERBOSITY` are optional
+4. Verify the install:
    ```bash
-   npm ci --omit=dev --omit=optional
+   telepi status
    ```
-   If you want local/offline voice transcription later, install the optional backend you want manually (for example `npm install parakeet-coreml` or `npm install sherpa-onnx-node`).
-5. Copy the example environment file and fill it in:
-   ```bash
-   cp .env.example .env
-   ```
-   - `TELEGRAM_BOT_TOKEN` — your bot token from BotFather
-   - `TELEGRAM_ALLOWED_USER_IDS` — your Telegram numeric user ID (comma-separated for multiple)
-   - `PI_SESSION_PATH` *(optional)* — open a specific Pi session JSONL file for hand-off
-   - `PI_MODEL` *(optional)* — force a specific model, e.g. `anthropic/claude-sonnet-4-5`
-   - `OPENAI_API_KEY` *(optional)* — enable cloud-based voice transcription via OpenAI Whisper
-   - `SHERPA_ONNX_MODEL_DIR` *(optional)* — path to an extracted Sherpa-ONNX Parakeet model directory (primarily for Intel Macs)
-   - `SHERPA_ONNX_NUM_THREADS` *(optional)* — CPU threads for Sherpa-ONNX (default: `2`)
-   - `TOOL_VERBOSITY` *(optional)* — `all` | `summary` | `errors-only` | `none` (default: `summary`)
-6. Start TelePi manually:
-   ```bash
-   npm start
-   ```
+5. Open Telegram and send `/start` to your bot.
 
-The release artifact includes the built `dist/` output plus `.env.example`, a runtime `package.json`, `package-lock.json`, `extensions/telepi-handoff.ts`, and `launchd/com.telepi.plist`.
-
-### launchd with a release artifact (macOS)
-
-1. Keep the extracted release directory in a stable location, e.g. `/opt/telepi/telepi-vX.Y.Z`
-2. Copy `launchd/com.telepi.plist` to `~/Library/LaunchAgents/com.telepi.plist`
-3. Replace the placeholder paths with:
-   - the extracted release directory as `WorkingDirectory`
-   - your Node binary path as the first `ProgramArguments` entry
-   - `<release-dir>/dist/index.js` as the second `ProgramArguments` entry
-   - real stdout/stderr log paths
-4. Ensure your `.env` file lives in the same extracted release directory
-5. Load and start the agent:
-   ```bash
-   launchctl bootstrap gui/$UID ~/Library/LaunchAgents/com.telepi.plist
-   ```
-
-If you later change the plist or `.env`, restart it with:
-
-```bash
-launchctl kickstart -k gui/$UID/com.telepi
-```
+Rerunning `telepi setup` after upgrades is safe; it refreshes the LaunchAgent and extension while preserving your config. After setup, `/handoff` automatically reuses the installed `launchd` service by default.
 
 ## Development from Source
 
@@ -93,15 +68,30 @@ Use a source checkout when you want to hack on TelePi or run the latest unreleas
    ```bash
    cp .env.example .env
    ```
+   At minimum set:
+   - `TELEGRAM_BOT_TOKEN`
+   - `TELEGRAM_ALLOWED_USER_IDS`
+   - `TELEPI_WORKSPACE` if you want fresh Telegram sessions rooted somewhere other than the repo directory
 3. Start the bot in development mode:
    ```bash
    npm run dev
    ```
-4. If you want to run the built production entrypoint from source, build first:
+4. To test the installed-mode flow from a checkout, build first and use the built CLI entrypoint:
    ```bash
    npm run build
-   node dist/index.js
+   node dist/cli.js setup
+   node dist/cli.js status
    ```
+
+If you are working from a built checkout or GitHub Release artifact instead of a global npm install, install runtime dependencies first — the `dist/` files are not self-contained:
+
+```bash
+npm install --omit=dev
+# or: npm ci --omit=dev
+node dist/cli.js setup
+node dist/cli.js start
+```
+
 
 ## Telegram Commands
 
@@ -140,7 +130,7 @@ TelePi supports three transcription backends and picks the best one automaticall
 |---------|---------------|------|---------|
 | **Parakeet CoreML** (local) | `npm install parakeet-coreml` + `brew install ffmpeg` | Free | On-device |
 | **Sherpa-ONNX Parakeet** (local, Intel Mac path) | `npm install sherpa-onnx-node` + download model + set `SHERPA_ONNX_MODEL_DIR` | Free | On-device |
-| **OpenAI Whisper** (cloud) | `OPENAI_API_KEY=sk-...` in `.env` | ~$0.006/min | Cloud |
+| **OpenAI Whisper** (cloud) | `OPENAI_API_KEY=sk-...` in your TelePi config file | ~$0.006/min | Cloud |
 
 TelePi tries backends in this order:
 
@@ -199,7 +189,7 @@ For the exact family of Sherpa Parakeet models TelePi currently supports, plus p
 
 ### Using OpenAI Whisper (cloud transcription)
 
-Add your key to `.env`:
+Add your key to your TelePi config file (`~/.config/telepi/config.env` in installed mode, or `.env` in a source checkout):
 
 ```
 OPENAI_API_KEY=sk-...
@@ -252,10 +242,13 @@ TelePi supports seamless bi-directional session hand-off between Pi CLI and Tele
 You're working in Pi CLI on your laptop and want to continue from your phone:
 
 1. **In Pi CLI**, type `/handoff`
-2. The extension hands off your current session to TelePi — in direct mode it launches TelePi, and in `launchd` mode it restarts the configured LaunchAgent — then shuts down Pi CLI
+2. The extension hands off your current session to TelePi — in direct mode it starts TelePi immediately, and in `launchd` mode it restarts the installed LaunchAgent with the handed-off session. The default `auto` behavior picks `launchd` after `telepi setup`, otherwise direct mode — then shuts down Pi CLI
 3. **Open Telegram** — TelePi is already running with your full conversation context. Just keep typing (or speak).
 
-**Extension installation** — symlink into Pi's global extensions directory:
+**Extension installation**
+
+- If you used `telepi setup`, the extension is already installed at `~/.pi/agent/extensions/telepi-handoff.ts`
+- If you are developing from a source checkout without `telepi setup`, symlink it manually:
 
 ```bash
 cd /path/to/TelePi
@@ -264,50 +257,46 @@ ln -s "$(pwd)/extensions/telepi-handoff.ts" ~/.pi/agent/extensions/telepi-handof
 
 Pi auto-discovers it after symlinking (or run `/reload` in Pi).
 
-The extension supports two hand-off modes, controlled via shell environment variables:
+The extension supports three hand-off mode settings, controlled via shell environment variables:
 
-- `TELEPI_HANDOFF_MODE=direct` *(default, source checkout only)* — old behavior: kill the current TelePi dev process and start a new one with `npx tsx src/index.ts`
-- `TELEPI_HANDOFF_MODE=launchd` — set `PI_SESSION_PATH` in the `launchd` user environment and restart a LaunchAgent
-- `TELEPI_LAUNCHD_LABEL` *(optional, default: `com.telepi`)* — LaunchAgent label to restart in `launchd` mode
+- `TELEPI_HANDOFF_MODE=auto` *(default)* — if `telepi setup` assets are present (`~/.config/telepi/config.env` plus the configured LaunchAgent plist), reuse `launchd`; otherwise use direct mode
+- `TELEPI_HANDOFF_MODE=direct` — always start a fresh direct TelePi process; best for source-checkout development or when the LaunchAgent is unloaded
+- `TELEPI_HANDOFF_MODE=launchd` — force `launchd` hand-off by setting `PI_SESSION_PATH` in the `launchd` user environment and restarting the configured LaunchAgent
+- `TELEPI_LAUNCHD_LABEL` *(optional, default: `com.telepi`)* — LaunchAgent label/plist name to restart in `launchd` mode or auto-detect
 
 #### Direct mode
 
-This mode expects a source checkout because it restarts TelePi via `npx tsx src/index.ts`. If you are running from a GitHub Release artifact, use `launchd` mode instead.
-
-Set `TELEPI_DIR` in your shell profile to point to your TelePi installation (`TELEPI_HANDOFF_MODE=direct` is the default and does not need to be set explicitly):
+Direct mode starts a separate TelePi process. That is the natural default for source-checkout development, where you typically export:
 
 ```bash
 export TELEPI_DIR="/path/to/TelePi"
 ```
 
-#### launchd mode (recommended on macOS)
+If a global `telepi` command is available and `~/.config/telepi/config.env` exists, direct mode can also launch the installed CLI explicitly. If the installed config is missing, `/handoff` now falls back to `TELEPI_DIR` when that source checkout path is available.
 
-1. If you are running from a source checkout, build TelePi first:
-   ```bash
-   npm run build
-   ```
-   Release artifacts already include `dist/`
-2. Copy `launchd/com.telepi.plist` to `~/Library/LaunchAgents/com.telepi.plist`
-3. Replace the placeholder paths with your real TelePi path, Node path, and log file locations. Also ensure a `.env` file with `TELEGRAM_BOT_TOKEN` and `TELEGRAM_ALLOWED_USER_IDS` is present in the `WorkingDirectory` (TelePi loads it from `process.cwd()` at startup — see `.env.example`)
-4. Load it:
-   ```bash
-   launchctl bootstrap gui/$UID ~/Library/LaunchAgents/com.telepi.plist
-   ```
-   If you later change the plist or `.env`, restart it with:
-   ```bash
-   launchctl kickstart -k gui/$UID/com.telepi
-   ```
-5. Export the hand-off settings in your shell profile:
-   ```bash
-   export TELEPI_HANDOFF_MODE=launchd
-   export TELEPI_LAUNCHD_LABEL=com.telepi
-   ```
+#### launchd mode (default after `telepi setup` on macOS)
+
+If you installed TelePi with `telepi setup`, no extra shell exports are required: `/handoff` auto-detects the installed config + LaunchAgent plist and reuses the resident `launchd`-managed bot instead of starting a second direct polling process.
+
+If you are testing the installed flow from a source checkout, run the installer from the built checkout first:
+
+```bash
+npm run build
+node dist/cli.js setup
+```
+
+You can still force launchd mode explicitly (or point at a non-default label) with:
+
+```bash
+export TELEPI_HANDOFF_MODE=launchd
+export TELEPI_LAUNCHD_LABEL=com.telepi
+```
 
 In `launchd` mode, `/handoff` only does two things: set `PI_SESSION_PATH` in `launchd`, then restart the configured LaunchAgent. That keeps TelePi to a single bot process and avoids Telegram token conflicts.
 
-> **Note:** `launchctl setenv` does not persist across reboots. After a machine restart, `PI_SESSION_PATH` will be cleared and TelePi will start a fresh in-memory session until the next `/handoff`.
+> **Note:** `launchctl setenv` does not persist across reboots. After a machine restart, `PI_SESSION_PATH` will be cleared and TelePi will start a fresh session until the next `/handoff`.
 
-> **Note:** Because `KeepAlive` is set in the plist, launchd will automatically restart TelePi if it exits. To fully stop TelePi, unload the agent: `launchctl bootout gui/$UID/com.telepi`.
+> **Note:** `telepi setup` installs the plist with `KeepAlive`, so launchd will restart TelePi if it exits. To fully stop TelePi, unload the agent: `launchctl bootout gui/$UID/com.telepi`.
 
 ### Telegram → CLI (`/handback`)
 
@@ -334,8 +323,18 @@ cd /path/to/project && pi -c
 Without the extension, you can hand off manually:
 
 1. Note the session file path from Pi CLI (shown on startup)
-2. Set `PI_SESSION_PATH` in TelePi's `.env`
-3. Start TelePi with either `npm run dev` (source checkout) or `npm start` (release artifact)
+2. Start TelePi with that session explicitly:
+
+```bash
+TELEPI_CONFIG="$HOME/.config/telepi/config.env" PI_SESSION_PATH="/path/to/session.jsonl" telepi start
+```
+
+From a source checkout, use the development entrypoint instead:
+
+```bash
+cd /path/to/TelePi
+PI_SESSION_PATH="/path/to/session.jsonl" npm run dev
+```
 
 ### How it works
 
@@ -359,40 +358,62 @@ Sessions are stored under `~/.pi/agent/sessions/--<encoded-workspace-path>--/`.
 
 ## File Layout
 
+Installed mode (`telepi setup`) creates or manages these user-level files:
+
+```text
+~/.config/telepi/
+└── config.env                     ← copied from .env.example on first setup
+
+~/Library/LaunchAgents/
+└── com.telepi.plist              ← launchd service generated by telepi setup
+
+~/Library/Logs/TelePi/
+├── telepi.out.log
+└── telepi.err.log
+
+~/.pi/agent/extensions/
+└── telepi-handoff.ts             ← installed Pi CLI extension
 ```
+
+Source checkout layout:
+
+```text
 TelePi/
+├── dist/
+│   ├── cli.js                    ← built CLI entrypoint (`node dist/cli.js ...`)
+│   └── index.js                  ← built bot entrypoint
 ├── extensions/
-│   └── telepi-handoff.ts        ← Pi CLI extension (git-tracked)
+│   └── telepi-handoff.ts         ← Pi CLI extension source
 ├── launchd/
-│   └── com.telepi.plist
+│   └── com.telepi.plist          ← launchd template used by telepi setup
 ├── scripts/
-│   └── package-release.mjs      ← builds release tarballs + sha256 checksums
+│   └── package-release.mjs       ← builds release tarballs + sha256 checksums
 ├── src/
-│   ├── index.ts                 ← entry point
-│   ├── bot.ts                   ← Telegram bot (Grammy)
-│   ├── config.ts                ← environment config
-│   ├── errors.ts                ← user-facing error helpers
-│   ├── format.ts                ← markdown → Telegram HTML
-│   ├── model-scope.ts           ← model filtering and grouping
-│   ├── pi-session.ts            ← Pi SDK session wrapper
-│   ├── tree.ts                  ← session tree rendering & navigation
-│   └── voice.ts                 ← audio transcription (Parakeet CoreML / Sherpa-ONNX / OpenAI)
+│   ├── cli.ts                    ← CLI commands (`start`, `setup`, `status`)
+│   ├── index.ts                  ← entry point
+│   ├── bot.ts                    ← Telegram bot (Grammy)
+│   ├── config.ts                 ← environment config
+│   ├── errors.ts                 ← user-facing error helpers
+│   ├── format.ts                 ← markdown → Telegram HTML
+│   ├── install.ts                ← installed-mode setup/status helpers
+│   ├── model-scope.ts            ← model filtering and grouping
+│   ├── pi-session.ts             ← Pi SDK session wrapper
+│   ├── tree.ts                   ← session tree rendering & navigation
+│   └── voice.ts                  ← audio transcription (Parakeet CoreML / Sherpa-ONNX / OpenAI)
 ├── test/
-│   ├── bot.test.ts              ← bot command/callback integration tests
-│   ├── config.test.ts           ← config/env loading tests
-│   ├── errors.test.ts           ← error helper unit tests
-│   ├── format.test.ts           ← formatter unit tests
-│   ├── pi-session.test.ts       ← session service integration tests
-│   ├── tree.test.ts             ← tree rendering unit tests
-│   ├── voice.decode.test.ts     ← ffmpeg audio decode tests
-│   └── voice.test.ts            ← voice transcription unit tests
+│   ├── bot.test.ts               ← bot command/callback integration tests
+│   ├── config.test.ts            ← config/env loading tests
+│   ├── errors.test.ts            ← error helper unit tests
+│   ├── format.test.ts            ← formatter unit tests
+│   ├── install.test.ts           ← install/setup unit tests
+│   ├── pi-session.test.ts        ← session service integration tests
+│   ├── tree.test.ts              ← tree rendering unit tests
+│   ├── voice.decode.test.ts      ← ffmpeg audio decode tests
+│   └── voice.test.ts             ← voice transcription unit tests
 ├── vitest.config.ts
 ├── .env.example
 ├── Dockerfile
 └── docker-compose.yml
-
-~/.pi/agent/extensions/
-    └── telepi-handoff.ts        ← symlink → TelePi/extensions/ (Pi auto-discovers)
 ```
 
 ## Docker
