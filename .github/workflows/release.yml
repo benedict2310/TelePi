@@ -49,14 +49,7 @@ jobs:
 
       - name: Publish package to npm
         shell: bash
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
-          if [[ -z "${NODE_AUTH_TOKEN}" ]]; then
-            echo "NPM_TOKEN secret is not configured. Add a publish-capable npm token in GitHub repository secrets."
-            exit 1
-          fi
-
           if [[ "${GITHUB_REF_NAME}" == *-* ]]; then
             npm publish --access public --tag next --provenance
           else

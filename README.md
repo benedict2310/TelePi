@@ -489,5 +489,5 @@ The release workflow then:
 
 Notes:
 - prerelease tags like `v0.2.0-beta.1` are published to npm with the `next` dist-tag and marked as GitHub prereleases
-- configure a repository secret named `NPM_TOKEN` with publish rights for `@futurelab-studio/telepi`
-- the npm token must support automated publishing (2FA bypass / automation-capable token)
+- npm publishing uses Trusted Publishing from GitHub Actions; no `NPM_TOKEN` secret is required
+- the trusted publisher must be configured on npm for repo `benedict2310/TelePi` and workflow `.github/workflows/release.yml`
