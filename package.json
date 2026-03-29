@@ -51,7 +51,7 @@
   },
   "dependencies": {
     "@grammyjs/auto-retry": "^2.0.2",
-    "@mariozechner/pi-coding-agent": "^0.60.0",
+    "@mariozechner/pi-coding-agent": "^0.63.2",
     "grammy": "^1.35.0",
     "minimatch": "^10.2.4"
   },
