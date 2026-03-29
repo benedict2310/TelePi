@@ -22,7 +22,14 @@ jobs:
         with:
           node-version: 22
           cache: npm
-          registry-url: https://registry.npmjs.org
+
+      - name: Update npm for trusted publishing
+        run: npm install -g npm@^11.10.0
+
+      - name: Show Node and npm versions
+        run: |
+          node -v
+          npm -v
 
       - name: Verify tag matches package.json version
         run: |

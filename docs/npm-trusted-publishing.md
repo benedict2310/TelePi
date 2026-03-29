@@ -82,6 +82,22 @@ Why:
 - `contents: write` lets the workflow create/update the GitHub Release
 - `id-token: write` is required for npm Trusted Publishing
 
+Also note npm's current Trusted Publishing requirements:
+- **npm CLI `11.5.1+`**
+- **Node `22.14.0+`**
+
+In practice, the workflow should explicitly upgrade npm after `actions/setup-node`, for example:
+
+```yaml
+- name: Update npm for trusted publishing
+  run: npm install -g npm@^11.10.0
+
+- name: Show Node and npm versions
+  run: |
+    node -v
+    npm -v
+```
+
 ### Core release steps
 
 A typical workflow should:
