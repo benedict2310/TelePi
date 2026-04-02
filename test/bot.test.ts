@@ -1661,6 +1661,83 @@ describe("createBot", () => {
     expect(pi.service.prompt).toHaveBeenCalledWith("/compact focus recent work");
   });
 
+  it("bridges /cron status through TelePi and surfaces the extension notification", async () => {
+    const { bot, pi, api } = setupBot({
+      piSessionOverrides: {
+        listSlashCommands: vi.fn().mockResolvedValue([
+          { name: "cron", description: "Manage PiCron schedules", source: "extension", path: "/ext/picron.ts" },
+        ]),
+      },
+    });
+
+    const promptMock = pi.service.prompt as ReturnType<typeof vi.fn>;
+    promptMock.mockImplementation(async () => {
+      pi.getExtensionBindings()?.uiContext?.notify("Daemon: running\nSchedules: 1\nEnabled: 1\nNext due: 2026-01-01T09:00:00.000Z", "info");
+      pi.emitAgentEnd();
+    });
+
+    await bot.handleUpdate(createTestUpdate({ message: { text: "/cron status" } }));
+    await nextTick();
+
+    expect(pi.service.prompt).toHaveBeenCalledWith("/cron status");
+    expect(api.sendMessage.mock.calls.some((call) => String(call[1]).includes("Daemon: running"))).toBe(true);
+    expect(api.sendMessage.mock.calls.some((call) => String(call[1]).includes("Schedules: 1"))).toBe(true);
+  });
+
+  it("drives a /cron add style multi-step extension dialog flow through TelePi replies", async () => {
+    const { bot, pi, api } = setupBot({
+      piSessionOverrides: {
+        listSlashCommands: vi.fn().mockResolvedValue([
+          { name: "cron", description: "Manage PiCron schedules", source: "extension", path: "/ext/picron.ts" },
+        ]),
+      },
+    });
+
+    const promptMock = pi.service.prompt as ReturnType<typeof vi.fn>;
+    promptMock.mockImplementation(async () => {
+      const ui = pi.getExtensionBindings()?.uiContext;
+      const name = await ui?.input("Schedule name", "Daily review");
+      const cron = await ui?.input("Cron expression", "0 9 * * *");
+      const timezone = await ui?.input("Timezone", "UTC");
+      const prompt = await ui?.input("Prompt", "Review the repo");
+      const cwd = await ui?.input("Target cwd (optional)", "/workspace/current");
+      const sessionFile = await ui?.input("Target session file (optional)", "session.jsonl");
+      ui?.notify(`Created schedule ${name} (${cron}, ${timezone}, ${prompt}, ${cwd}, ${sessionFile}).`, "info");
+      pi.emitAgentEnd();
+    });
+
+    const pending = bot.handleUpdate(createTestUpdate({ message: { text: "/cron add" } }));
+    await nextTick();
+
+    expect(api.sendMessage.mock.calls.some((call) => String(call[1]).includes("Schedule name"))).toBe(true);
+
+    await bot.handleUpdate(createTestUpdate({ message: { text: "Daily review" } }));
+    await nextTick();
+    expect(api.sendMessage.mock.calls.some((call) => String(call[1]).includes("Cron expression"))).toBe(true);
+
+    await bot.handleUpdate(createTestUpdate({ message: { text: "0 9 * * *" } }));
+    await nextTick();
+    expect(api.sendMessage.mock.calls.some((call) => String(call[1]).includes("Timezone"))).toBe(true);
+
+    await bot.handleUpdate(createTestUpdate({ message: { text: "UTC" } }));
+    await nextTick();
+    expect(api.sendMessage.mock.calls.some((call) => String(call[1]).includes("Prompt"))).toBe(true);
+
+    await bot.handleUpdate(createTestUpdate({ message: { text: "Review the repo" } }));
+    await nextTick();
+    expect(api.sendMessage.mock.calls.some((call) => String(call[1]).includes("Target cwd (optional)"))).toBe(true);
+
+    await bot.handleUpdate(createTestUpdate({ message: { text: "/workspace/current" } }));
+    await nextTick();
+    expect(api.sendMessage.mock.calls.some((call) => String(call[1]).includes("Target session file (optional)"))).toBe(true);
+
+    await bot.handleUpdate(createTestUpdate({ message: { text: "session.jsonl" } }));
+    await pending;
+
+    expect(pi.service.prompt).toHaveBeenCalledWith("/cron add");
+    expect(api.sendMessage.mock.calls.some((call) => String(call[1]).includes("Created schedule Daily review"))).toBe(true);
+  });
+
   it("normalizes bot-addressed Pi slash commands before bridging them", async () => {
     const { bot, pi } = setupBot({
       piSessionOverrides: {
