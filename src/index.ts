@@ -1,3 +1,4 @@
+import { realpathSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -107,7 +108,11 @@ function isEntrypoint(moduleUrl: string): boolean {
     return false;
   }
 
-  return fileURLToPath(moduleUrl) === path.resolve(argvPath);
+  try {
+    return fileURLToPath(moduleUrl) === realpathSync(argvPath);
+  } catch {
+    return false;
+  }
 }
 
 if (isEntrypoint(import.meta.url)) {
