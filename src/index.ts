@@ -1,5 +1,4 @@
 import { realpathSync } from "node:fs";
-import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { createBot, registerCommands } from "./bot.js";
