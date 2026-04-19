@@ -1,4 +1,4 @@
-import path from "node:path";
+import { realpathSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
 import { createBot, registerCommands } from "./bot.js";
@@ -107,7 +107,11 @@ function isEntrypoint(moduleUrl: string): boolean {
     return false;
   }
 
-  return fileURLToPath(moduleUrl) === path.resolve(argvPath);
+  try {
+    return fileURLToPath(moduleUrl) === realpathSync(argvPath);
+  } catch {
+    return false;
+  }
 }
 
 if (isEntrypoint(import.meta.url)) {
