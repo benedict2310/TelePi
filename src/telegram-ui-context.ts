@@ -1,4 +1,4 @@
-import type { ExtensionUIContext } from "@mariozechner/pi-coding-agent";
+import type { ExtensionUIContext } from "@earendil-works/pi-coding-agent";
 
 export type TelegramExtensionNoticeType = "info" | "warning" | "error";
 
@@ -88,6 +88,7 @@ export function createTelegramUIContext(options: CreateTelegramUIContextOptions)
     },
     setStatus() {},
     setWorkingMessage() {},
+    setWorkingVisible() {},
     setWorkingIndicator() {},
     setHiddenThinkingLabel() {},
     setWidget() {},
@@ -107,6 +108,9 @@ export function createTelegramUIContext(options: CreateTelegramUIContextOptions)
     },
     addAutocompleteProvider() {},
     setEditorComponent() {},
+    getEditorComponent() {
+      return undefined;
+    },
     // Pi exposes ctx.ui.theme in degraded UI modes like RPC. TelePi does not render ANSI,
     // so we provide a plain-text shim instead of the interactive terminal Theme instance.
     theme: plainTextTheme as unknown as ExtensionUIContext["theme"],

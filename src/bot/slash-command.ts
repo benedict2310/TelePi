@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import {
   parseFrontmatter,
   type SlashCommandInfo,
-} from "@mariozechner/pi-coding-agent";
+} from "@earendil-works/pi-coding-agent";
 
 import { trimLine } from "./message-rendering.js";
 

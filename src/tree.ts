@@ -1,4 +1,4 @@
-import type { SessionEntry } from "@mariozechner/pi-coding-agent";
+import type { SessionEntry } from "@earendil-works/pi-coding-agent";
 
 import { NOOP_PAGE_CALLBACK_DATA } from "./callback-data.js";
 import { escapeHTML } from "./format.js";

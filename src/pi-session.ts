@@ -20,9 +20,9 @@ import {
   type SessionEntry,
   type SessionStats,
   type SlashCommandInfo,
-} from "@mariozechner/pi-coding-agent";
-import type { ThinkingLevel } from "@mariozechner/pi-agent-core";
-import type { Api, ImageContent, Model } from "@mariozechner/pi-ai";
+} from "@earendil-works/pi-coding-agent";
+import type { ThinkingLevel } from "@earendil-works/pi-agent-core";
+import type { Api, ImageContent, Model } from "@earendil-works/pi-ai";
 
 import type { TelePiConfig } from "./config.js";
 import { createProviderResponseNoticeExtension } from "./provider-response-notices.js";

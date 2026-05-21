@@ -419,7 +419,7 @@ const mockState = vi.hoisted(() => {
   };
 });
 
-vi.mock("@mariozechner/pi-coding-agent", () => ({
+vi.mock("@earendil-works/pi-coding-agent", () => ({
   createAgentSessionFromServices: mockState.createAgentSession,
   createAgentSessionRuntime: mockState.createAgentSessionRuntime,
   createAgentSessionServices: mockState.createAgentSessionServices,
