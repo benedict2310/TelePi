@@ -1,5 +1,5 @@
 import type { Context } from "grammy";
-import type { SlashCommandInfo } from "@mariozechner/pi-coding-agent";
+import type { SlashCommandInfo } from "@earendil-works/pi-coding-agent";
 
 import { escapeHTML } from "../../format.js";
 import type { PiSessionContext, PiSessionInfo, PiSessionService } from "../../pi-session.js";

@@ -43,7 +43,7 @@ vi.mock("../src/bot/prompt-inbox.js", async (importOriginal) => {
   };
 });
 
-import type { SlashCommandInfo } from "@mariozechner/pi-coding-agent";
+import type { SlashCommandInfo } from "@earendil-works/pi-coding-agent";
 
 import type { TelePiConfig } from "../src/config.js";
 import type {

@@ -2,8 +2,8 @@ import { readFile, unlink } from "node:fs/promises";
 
 import { InlineKeyboard, Bot, type Context } from "grammy";
 import { autoRetry } from "@grammyjs/auto-retry";
-import type { SlashCommandInfo } from "@mariozechner/pi-coding-agent";
-import type { ImageContent } from "@mariozechner/pi-ai";
+import type { SlashCommandInfo } from "@earendil-works/pi-coding-agent";
+import type { ImageContent } from "@earendil-works/pi-ai";
 
 import type { TelePiConfig } from "./config.js";
 import { formatError } from "./errors.js";
