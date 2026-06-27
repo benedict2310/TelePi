@@ -156,7 +156,7 @@ async function runPromptFlow(
     responseMessagePromise = (async () => {
       stopTyping();
       const preview = renderPreview();
-      console.log(`ensureResponseMessage / responseMessagePromise: sendTextMessage: ${preview.text}`)
+      console.log(`----- DEBUG: runPromptFlow / ensureResponseMessage / responseMessagePromise: sendTextMessage ${preview.text} (1. FIRST)`)
       // 1. first message to user
       const message = await sendTextMessage(bot.api, target, preview.text, {
         parseMode: preview.parseMode,
@@ -202,8 +202,8 @@ async function runPromptFlow(
 
     isFlushing = true;
     try {
-      console.log(`----- DEBUG: runPromptFlow / flushResponse: safeEditMessage ${nextText.text}`)
-      // 2. mesasge (draft) updates to user
+      console.log(`----- DEBUG: runPromptFlow / flushResponse: safeEditMessage ${nextText.text} (2. DRAFT UPDATE)`)
+      // 2. message (draft) updates to user
       await safeEditMessage(bot, target, responseMessageId, nextText.text, {
         parseMode: nextText.parseMode,
         fallbackText: nextText.fallbackText,
@@ -258,7 +258,7 @@ async function runPromptFlow(
     }
 
     const [firstChunk, ...remainingChunks] = chunks;
-    console.log(`----- DEBUG: runPromptFlow / deliverRenderedChunks firstChunk:${firstChunk} (${responseMessageId})`)
+    console.log(`----- DEBUG: runPromptFlow / deliverRenderedChunks firstChunk:${firstChunk.text.slice(0, 20)}... (${responseMessageId} - 3. FINAL)`);
 
     // 3. final message to user
     if (responseMessageId) {
