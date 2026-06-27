@@ -8,6 +8,7 @@ export type RenderedText = {
   text: string;
   fallbackText: string;
   parseMode?: TelegramParseMode;
+  rich?: boolean;
 };
 
 export type RenderedChunk = RenderedText & {
@@ -15,6 +16,7 @@ export type RenderedChunk = RenderedText & {
 };
 
 export const TELEGRAM_MESSAGE_LIMIT = 4000;
+export const TELEGRAM_RICH_MESSAGE_LIMIT = 32768;
 export const TOOL_OUTPUT_PREVIEW_LIMIT = 500;
 const STREAMING_PREVIEW_LIMIT = 3800;
 const FORMATTED_CHUNK_TARGET = 3000;
@@ -345,7 +347,7 @@ export function splitTelegramText(text: string): string[] {
  * Break up markdown into telegram-sized and HTML-converted chunks.
  *
  */
-export function splitMarkdownForTelegram(markdown: string): RenderedChunk[] {
+export function splitMarkdownForTelegram(markdown: string, rich?: boolean): RenderedChunk[] {
   if (!markdown) {
     return [];
   }
@@ -353,11 +355,12 @@ export function splitMarkdownForTelegram(markdown: string): RenderedChunk[] {
   const chunks: RenderedChunk[] = [];
   let remaining = markdown;
 
+  let limit = rich ? TELEGRAM_RICH_MESSAGE_LIMIT : FORMATTED_CHUNK_TARGET;
   while (remaining) {
-    const maxLength = Math.min(remaining.length, FORMATTED_CHUNK_TARGET);
+    const maxLength = Math.min(remaining.length, limit);
     const initialCut = findPreferredSplitIndex(remaining, maxLength);
     const candidate = remaining.slice(0, initialCut) || remaining.slice(0, 1);
-    const rendered = renderMarkdownChunkWithinLimit(candidate);
+    const rendered = renderMarkdownChunkWithinLimit(candidate, rich);
 
     chunks.push(rendered);
     remaining = remaining.slice(rendered.sourceText.length).trimStart();
@@ -366,7 +369,7 @@ export function splitMarkdownForTelegram(markdown: string): RenderedChunk[] {
   return chunks;
 }
 
-export function renderMarkdownChunkWithinLimit(markdown: string): RenderedChunk {
+export function renderMarkdownChunkWithinLimit(markdown: string, rich?: boolean): RenderedChunk {
   if (!markdown) {
     return {
       text: "",
@@ -377,12 +380,13 @@ export function renderMarkdownChunkWithinLimit(markdown: string): RenderedChunk 
   }
 
   let sourceText = markdown;
-  let rendered = formatMarkdownMessage(sourceText);
+  let rendered = formatMarkdownMessage(sourceText, rich);
 
-  while (rendered.text.length > TELEGRAM_MESSAGE_LIMIT && sourceText.length > 1) {
+  let limit = rich ? TELEGRAM_RICH_MESSAGE_LIMIT : TELEGRAM_MESSAGE_LIMIT;
+  while (rendered.text.length > limit && sourceText.length > 1) {
     const nextLength = Math.max(1, sourceText.length - Math.max(100, Math.ceil(sourceText.length * 0.1)));
     sourceText = sourceText.slice(0, nextLength).trimEnd() || sourceText.slice(0, nextLength);
-    rendered = formatMarkdownMessage(sourceText);
+    rendered = formatMarkdownMessage(sourceText, rich);
   }
 
   return {
@@ -391,7 +395,17 @@ export function renderMarkdownChunkWithinLimit(markdown: string): RenderedChunk 
   };
 }
 
-export function formatMarkdownMessage(markdown: string): RenderedText {
+/**
+ * Convert markdown to texb object with parseMode HTML
+ */
+export function formatMarkdownMessage(markdown: string, rich?: boolean): RenderedText {
+  if (rich) {
+    return {
+      text: markdown,
+      fallbackText: markdown,
+      rich: true
+    }
+  }
   try {
     return {
       text: formatTelegramHTML(markdown),
@@ -426,12 +440,13 @@ export function findPreferredSplitIndex(text: string, maxLength: number): number
   return Math.max(1, maxLength);
 }
 
-export function buildStreamingPreview(text: string): string {
-  if (text.length <= STREAMING_PREVIEW_LIMIT) {
+export function buildStreamingPreview(text: string, rich?: boolean): string {
+  let limit = rich ? TELEGRAM_RICH_MESSAGE_LIMIT : STREAMING_PREVIEW_LIMIT;
+  if (text.length <= limit) {
     return text;
   }
 
-  return `${text.slice(0, STREAMING_PREVIEW_LIMIT)}\n\n… streaming (preview truncated)`;
+  return `${text.slice(0, limit)}\n\n… streaming (preview truncated)`;
 }
 
 export function appendWithCap(base: string, addition: string, cap: number): string {

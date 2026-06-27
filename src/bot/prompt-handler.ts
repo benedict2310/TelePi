@@ -124,9 +124,14 @@ async function runPromptFlow(
     }
   };
 
-  const renderPreview = (): RenderedChunk => {
-    const previewText = buildStreamingPreview(accumulatedText);
-    return renderMarkdownChunkWithinLimit(previewText);
+  /**
+   * Convert current accumulatedText to the initial rendered text object and keep within size limit.
+   */
+  const renderPreview = (rich?: boolean): RenderedChunk => {
+    // truncate text to <= STREAMING_PREVIEW_LIMIT | TELEGRAM_RICH_MESSAGE_LIMIT
+    const previewText = buildStreamingPreview(accumulatedText, rich);
+    // convert raw text to text object with parseMode HTML, chunk is guaranteed <= TELEGRAM_MESSAGE_LIMIT | TELEGRAM_RICH_MESSAGE_LIMIT
+    return renderMarkdownChunkWithinLimit(previewText, rich);
   };
 
   const buildFinalResponseText = (text: string): string => {
@@ -155,13 +160,14 @@ async function runPromptFlow(
 
     responseMessagePromise = (async () => {
       stopTyping();
-      const preview = renderPreview();
+      const preview = renderPreview(true);
       console.log(`----- DEBUG: runPromptFlow / ensureResponseMessage / responseMessagePromise: sendTextMessage ${preview.text} (1. FIRST)`)
       // 1. first message to user
       const message = await sendTextMessage(bot.api, target, preview.text, {
         parseMode: preview.parseMode,
         fallbackText: preview.fallbackText,
         replyMarkup: abortKeyboard,
+        rich: true
       });
       responseMessageId = message.message_id;
       lastRenderedText = preview.text;
@@ -210,6 +216,7 @@ async function runPromptFlow(
         parseMode: nextText.parseMode,
         fallbackText: nextText.fallbackText,
         replyMarkup: abortKeyboard,
+        rich: true
       });
       lastRenderedText = nextText.text;
       lastEditAt = Date.now();
@@ -254,7 +261,7 @@ async function runPromptFlow(
   };
 
   // deliver final message to user
-  const deliverRenderedChunks = async (chunks: RenderedChunk[]): Promise<void> => {
+  const deliverRenderedChunks = async (chunks: RenderedChunk[], rich?: boolean): Promise<void> => {
     if (chunks.length === 0) {
       return;
     }
@@ -268,6 +275,7 @@ async function runPromptFlow(
       await safeEditMessage(bot, target, responseMessageId, firstChunk.text, {
         parseMode: firstChunk.parseMode,
         fallbackText: firstChunk.fallbackText,
+        rich: rich
       });
       await removeAbortKeyboard();
     } else {
@@ -275,6 +283,7 @@ async function runPromptFlow(
       const message = await sendTextMessage(bot.api, target, firstChunk.text, {
         parseMode: firstChunk.parseMode,
         fallbackText: firstChunk.fallbackText,
+        rich: rich
       });
       responseMessageId = message.message_id;
     }
@@ -283,6 +292,7 @@ async function runPromptFlow(
       await sendTextMessage(bot.api, target, chunk.text, {
         parseMode: chunk.parseMode,
         fallbackText: chunk.fallbackText,
+        rich: rich
       });
     }
   };
@@ -320,7 +330,7 @@ async function runPromptFlow(
     // HAPPY path deliver to user
     // TODO: update splits with increased limit for bot api 10.1 sendRichMessage()
     // TODO: also stick with markdown for the new sendRichMessage API!
-    await deliverRenderedChunks(splitMarkdownForTelegram(finalText));
+    await deliverRenderedChunks(splitMarkdownForTelegram(finalText, true), true);
   };
 
   await piSession.bindExtensions({
