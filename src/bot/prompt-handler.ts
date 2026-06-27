@@ -1,3 +1,4 @@
+import { debuglog } from "node:util";
 import { InlineKeyboard, type Bot, type Context } from "grammy";
 import type { SlashCommandInfo } from "@earendil-works/pi-coding-agent";
 import type { ImageContent } from "@earendil-works/pi-ai";
@@ -54,6 +55,12 @@ interface CreatePromptHandlerOptions {
 }
 
 type PromptFlowDeps = Omit<CreatePromptHandlerOptions, "isBusy" | "taskRunner" | "sendBusyReply">;
+
+// Debug logging for prompt flow internals.
+// Enable with: NODE_DEBUG=telepi:prompt-handler npm run dev
+// Or wildcard:  NODE_DEBUG=telepi:* npm run dev
+// Disable by omitting the env var (default: silent).
+const debug = debuglog("telepi:prompt-handler");
 
 type ToolState = {
   toolName: string;
@@ -161,7 +168,7 @@ async function runPromptFlow(
     responseMessagePromise = (async () => {
       stopTyping();
       const preview = renderPreview(true);
-      console.log(`----- DEBUG: runPromptFlow / ensureResponseMessage / responseMessagePromise: sendTextMessage ${preview.text} (1. FIRST)`)
+      debug("runPromptFlow / ensureResponseMessage / responseMessagePromise: sendTextMessage %s (1. FIRST)", preview.text)
       // 1. first message to user
       const message = await sendTextMessage(bot.api, target, preview.text, {
         parseMode: preview.parseMode,
@@ -208,7 +215,7 @@ async function runPromptFlow(
 
     isFlushing = true;
     try {
-      console.log(`----- DEBUG: runPromptFlow / flushResponse: safeEditMessage ${nextText.text.slice(0, 20)}... (2. DRAFT UPDATE)`)
+      debug("runPromptFlow / flushResponse: safeEditMessage %s... (2. DRAFT UPDATE)", nextText.text.slice(0, 20))
       // 2. message (draft) updates to user
       // TODO: reply_markup = abortKeyboard not available for sendRichMessageDraft,
       // so we have to continue using safeEditMessage but with the new rich_message arg
@@ -267,7 +274,7 @@ async function runPromptFlow(
     }
 
     const [firstChunk, ...remainingChunks] = chunks;
-    console.log(`----- DEBUG: runPromptFlow / deliverRenderedChunks firstChunk:${firstChunk.text.slice(0, 20)}... (${responseMessageId} - 3. FINAL)`);
+    debug("runPromptFlow / deliverRenderedChunks: firstChunk %s... (msgId=%s - 3. FINAL)", firstChunk.text.slice(0, 20), responseMessageId);
 
     // 3. final message to user
     if (responseMessageId) {
