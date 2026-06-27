@@ -168,7 +168,7 @@ async function runPromptFlow(
     responseMessagePromise = (async () => {
       stopTyping();
       const preview = renderPreview(true);
-      debug("runPromptFlow / ensureResponseMessage / responseMessagePromise: sendTextMessage %s (1. FIRST)", preview.text)
+      debug("----- runPromptFlow / ensureResponseMessage / responseMessagePromise: sendTextMessage %s (1. FIRST MESSAGE)", preview.text)
       // 1. first message to user
       const message = await sendTextMessage(bot.api, target, preview.text, {
         parseMode: preview.parseMode,
@@ -208,7 +208,7 @@ async function runPromptFlow(
       return;
     }
 
-    const nextText = renderPreview();
+    const nextText = renderPreview(true);
     if (nextText.text === lastRenderedText) {
       return;
     }
