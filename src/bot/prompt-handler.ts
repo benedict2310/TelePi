@@ -109,9 +109,9 @@ async function runPromptFlow(
   let finalized = false;
 
   const typingInterval = setInterval(() => {
-    void sendChatAction(bot.api, target, "typing").catch(() => {});
+    void sendChatAction(bot.api, target, "typing").catch(() => { });
   }, typingIntervalMs);
-  void sendChatAction(bot.api, target, "typing").catch(() => {});
+  void sendChatAction(bot.api, target, "typing").catch(() => { });
 
   const stopTyping = (): void => {
     clearInterval(typingInterval);
@@ -143,6 +143,7 @@ async function runPromptFlow(
     return trimmedText ? `${trimmedText}\n\n${summaryLine}` : summaryLine;
   };
 
+  // this sends the first message to the user as part of a new response
   const ensureResponseMessage = async (): Promise<void> => {
     if (responseMessageId) {
       return;
@@ -155,6 +156,8 @@ async function runPromptFlow(
     responseMessagePromise = (async () => {
       stopTyping();
       const preview = renderPreview();
+      console.log(`ensureResponseMessage / responseMessagePromise: sendTextMessage: ${preview.text}`)
+      // 1. first message to user
       const message = await sendTextMessage(bot.api, target, preview.text, {
         parseMode: preview.parseMode,
         fallbackText: preview.fallbackText,
@@ -172,6 +175,8 @@ async function runPromptFlow(
     }
   };
 
+  // does the work for scheduleFlush, the onTextDelta handler
+  // in other words, this sends chunks of text to the user on telegram as they come in from Pi
   const flushResponse = async (force = false): Promise<void> => {
     if (!accumulatedText) {
       return;
@@ -197,6 +202,8 @@ async function runPromptFlow(
 
     isFlushing = true;
     try {
+      console.log(`----- DEBUG: runPromptFlow / flushResponse: safeEditMessage ${nextText.text}`)
+      // 2. mesasge (draft) updates to user
       await safeEditMessage(bot, target, responseMessageId, nextText.text, {
         parseMode: nextText.parseMode,
         fallbackText: nextText.fallbackText,
@@ -213,6 +220,7 @@ async function runPromptFlow(
     }
   };
 
+  // handler for onTextDelta event: every time new text comes in, schedule sending to telegram user
   const scheduleFlush = (): void => {
     if (flushTimer || finalized) {
       return;
@@ -243,19 +251,25 @@ async function runPromptFlow(
     }
   };
 
+  // deliver final message to user
   const deliverRenderedChunks = async (chunks: RenderedChunk[]): Promise<void> => {
     if (chunks.length === 0) {
       return;
     }
 
     const [firstChunk, ...remainingChunks] = chunks;
+    console.log(`----- DEBUG: runPromptFlow / deliverRenderedChunks firstChunk:${firstChunk} (${responseMessageId})`)
+
+    // 3. final message to user
     if (responseMessageId) {
+      // use update, because there is already a sent message
       await safeEditMessage(bot, target, responseMessageId, firstChunk.text, {
         parseMode: firstChunk.parseMode,
         fallbackText: firstChunk.fallbackText,
       });
       await removeAbortKeyboard();
     } else {
+      // message has not been sent yet, so send first chunk
       const message = await sendTextMessage(bot.api, target, firstChunk.text, {
         parseMode: firstChunk.parseMode,
         fallbackText: firstChunk.fallbackText,
@@ -301,6 +315,7 @@ async function runPromptFlow(
       return;
     }
 
+    // TODO: update splits with increased limit for bot api 10.1 sendRichMessage()
     await deliverRenderedChunks(splitMarkdownForTelegram(finalText));
   };
 
