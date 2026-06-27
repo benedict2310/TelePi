@@ -341,6 +341,10 @@ export function splitTelegramText(text: string): string[] {
   return chunks.length > 0 ? chunks : [""];
 }
 
+/**
+ * Break up markdown into telegram-sized and HTML-converted chunks.
+ *
+ */
 export function splitMarkdownForTelegram(markdown: string): RenderedChunk[] {
   if (!markdown) {
     return [];

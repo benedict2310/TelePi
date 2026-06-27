@@ -315,7 +315,9 @@ async function runPromptFlow(
       return;
     }
 
+    // HAPPY path deliver to user
     // TODO: update splits with increased limit for bot api 10.1 sendRichMessage()
+    // TODO: also stick with markdown for the new sendRichMessage API!
     await deliverRenderedChunks(splitMarkdownForTelegram(finalText));
   };
 
@@ -501,6 +503,7 @@ async function runPromptFlow(
       const combinedText = buildFinalResponseText(renderPromptFailure(accumulatedText, error));
       const chunks = splitMarkdownForTelegram(combinedText);
       try {
+        // send error message to user; we can stick with old HTML chunks here
         await deliverRenderedChunks(chunks);
       } catch (telegramError) {
         console.error("Failed to send error message to Telegram:", telegramError);
