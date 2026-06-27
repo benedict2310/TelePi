@@ -67,24 +67,23 @@ export async function sendTextMessage(
   text: string,
   options: TextOptions = {},
 ): Promise<{ message_id: number }> {
+  if (options.rich) {
+    return await api.sendRichMessage(target.chatId, { markdown: text }, {
+      ...(target.messageThreadId !== undefined ? { message_thread_id: target.messageThreadId } : {}),
+      reply_markup: options.replyMarkup,
+    });
+  }
+
   const parseMode = Object.prototype.hasOwnProperty.call(options, "parseMode")
     ? options.parseMode
     : "HTML";
 
   try {
-    if (options.rich) {
-      return await api.sendRichMessage(target.chatId, { markdown: text }, {
-        ...(target.messageThreadId !== undefined ? { message_thread_id: target.messageThreadId } : {}),
-        reply_markup: options.replyMarkup,
-      })
-    }
-    else {
-      return await api.sendMessage(target.chatId, text, {
-        ...(parseMode ? { parse_mode: parseMode } : {}),
-        ...(target.messageThreadId !== undefined ? { message_thread_id: target.messageThreadId } : {}),
-        reply_markup: options.replyMarkup,
-      });
-    }
+    return await api.sendMessage(target.chatId, text, {
+      ...(parseMode ? { parse_mode: parseMode } : {}),
+      ...(target.messageThreadId !== undefined ? { message_thread_id: target.messageThreadId } : {}),
+      reply_markup: options.replyMarkup,
+    });
   } catch (error) {
     if (parseMode && options.fallbackText !== undefined && isTelegramParseError(error)) {
       return await api.sendMessage(target.chatId, options.fallbackText, {
@@ -103,22 +102,23 @@ export async function safeEditMessage(
   text: string,
   options: TextOptions = {},
 ): Promise<void> {
+  if (options.rich) {
+    // if in rich mode, we do not send parse_mode, and we send InputRichMessage into the text arg
+    await bot.api.editMessageText(target.chatId, messageId, { markdown: text }, {
+      reply_markup: options.replyMarkup,
+    });
+    return;
+  }
+
   const parseMode = Object.prototype.hasOwnProperty.call(options, "parseMode")
     ? options.parseMode
     : "HTML";
 
   try {
-    if (options.rich) {
-      // if in rich mode, we do not send parse_mode, and we send InputRichMessage into the text arg
-      await bot.api.editMessageText(target.chatId, messageId, { markdown: text }, {
-        reply_markup: options.replyMarkup,
-      })
-    } else {
-      await bot.api.editMessageText(target.chatId, messageId, text, {
-        ...(parseMode ? { parse_mode: parseMode } : {}),
-        reply_markup: options.replyMarkup,
-      })
-    }
+    await bot.api.editMessageText(target.chatId, messageId, text, {
+      ...(parseMode ? { parse_mode: parseMode } : {}),
+      reply_markup: options.replyMarkup,
+    });
   } catch (error) {
     if (isMessageNotModifiedError(error)) {
       return;
