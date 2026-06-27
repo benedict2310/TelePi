@@ -202,8 +202,10 @@ async function runPromptFlow(
 
     isFlushing = true;
     try {
-      console.log(`----- DEBUG: runPromptFlow / flushResponse: safeEditMessage ${nextText.text} (2. DRAFT UPDATE)`)
+      console.log(`----- DEBUG: runPromptFlow / flushResponse: safeEditMessage ${nextText.text.slice(0, 20)}... (2. DRAFT UPDATE)`)
       // 2. message (draft) updates to user
+      // TODO: reply_markup = abortKeyboard not available for sendRichMessageDraft,
+      // so we have to continue using safeEditMessage but with the new rich_message arg
       await safeEditMessage(bot, target, responseMessageId, nextText.text, {
         parseMode: nextText.parseMode,
         fallbackText: nextText.fallbackText,
