@@ -217,7 +217,7 @@ async function runPromptFlow(
     try {
       debug("runPromptFlow / flushResponse: safeEditMessage %s... (2. DRAFT UPDATE)", nextText.text.slice(0, 20))
       // 2. message (draft) updates to user
-      // TODO: reply_markup = abortKeyboard not available for sendRichMessageDraft,
+      // reply_markup = abortKeyboard not available for sendRichMessageDraft,
       // so we have to continue using safeEditMessage but with the new rich_message arg
       await safeEditMessage(bot, target, responseMessageId, nextText.text, {
         parseMode: nextText.parseMode,
