@@ -155,6 +155,17 @@ async function runPromptFlow(
     return trimmedText ? `${trimmedText}\n\n${summaryLine}` : summaryLine;
   };
 
+  const hasRenderableContent = (text: string): boolean => {
+    // strip leading markdown structural markers and whitespace
+    const stripped = text
+      .trim()
+      .replace(/^[\s#*>_`~\-]+/gm, "")   // heading/atx, blockquote, emphasis, code, list markers
+      .replace(/^\d+\.\s+/gm, "")        // ordered list markers
+      .trim();
+    return stripped.length >= 3;         // at least a few chars of actual text
+  };
+
+
   // this sends the first message to the user as part of a new response
   const ensureResponseMessage = async (): Promise<void> => {
     if (responseMessageId) {
@@ -168,8 +179,15 @@ async function runPromptFlow(
     responseMessagePromise = (async () => {
       stopTyping();
       const preview = renderPreview(true);
-      // FIXME: in rich mode, it has happened that preview was just the "#" which would then raise sendRichMessage 400 RICH_MESSAGE_EMPTY
+
       debug("----- runPromptFlow / ensureResponseMessage / responseMessagePromise: sendTextMessage %s (1. FIRST MESSAGE)", preview.text)
+
+      // in rich mode, it can happen that preview is only the starting "#" or "##" which would then raise sendRichMessage 400 RICH_MESSAGE_EMPTY
+      // in these cases, we give the preview at least these three dots to work with
+      if (!hasRenderableContent(preview.text)) {
+        preview.text += "...";
+      }
+
       // 1. first message to user
       const message = await sendTextMessage(bot.api, target, preview.text, {
         parseMode: preview.parseMode,
