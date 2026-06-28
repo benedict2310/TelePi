@@ -168,6 +168,7 @@ async function runPromptFlow(
     responseMessagePromise = (async () => {
       stopTyping();
       const preview = renderPreview(true);
+      // FIXME: in rich mode, it has happened that preview was just the "#" which would then raise sendRichMessage 400 RICH_MESSAGE_EMPTY
       debug("----- runPromptFlow / ensureResponseMessage / responseMessagePromise: sendTextMessage %s (1. FIRST MESSAGE)", preview.text)
       // 1. first message to user
       const message = await sendTextMessage(bot.api, target, preview.text, {
