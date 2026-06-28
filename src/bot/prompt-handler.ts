@@ -274,7 +274,7 @@ async function runPromptFlow(
     }
 
     const [firstChunk, ...remainingChunks] = chunks;
-    debug("runPromptFlow / deliverRenderedChunks: firstChunk %s... (msgId=%s - 3. FINAL)", firstChunk.text.slice(0, 20), responseMessageId);
+    debug("runPromptFlow / deliverRenderedChunks: firstChunk %s... (chunkSize=%d, msgId=%s - 3. FINAL)", firstChunk.text.slice(0, 20), firstChunk.text.length, responseMessageId);
 
     // 3. final message to user
     if (responseMessageId) {
