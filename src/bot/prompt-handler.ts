@@ -1,4 +1,4 @@
-import { debuglog } from "node:util";
+import { debuglog, format } from "node:util";
 import { InlineKeyboard, type Bot, type Context } from "grammy";
 import type { SlashCommandInfo } from "@earendil-works/pi-coding-agent";
 import type { ImageContent } from "@earendil-works/pi-ai";
@@ -60,7 +60,10 @@ type PromptFlowDeps = Omit<CreatePromptHandlerOptions, "isBusy" | "taskRunner" |
 // Enable with: NODE_DEBUG=telepi:prompt-handler npm run dev
 // Or wildcard:  NODE_DEBUG=telepi:* npm run dev
 // Disable by omitting the env var (default: silent).
-const debug = debuglog("telepi:prompt-handler");
+const rawDebug = debuglog("telepi:prompt-handler");
+const debug = (msg: string, ...args: unknown[]): void => {
+  rawDebug(`[${new Date().toISOString()}] ${format(msg, ...args)}`);
+};
 
 type ToolState = {
   toolName: string;
