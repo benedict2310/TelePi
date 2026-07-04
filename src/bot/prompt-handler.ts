@@ -180,7 +180,8 @@ async function runPromptFlow(
     }
 
     responseMessagePromise = (async () => {
-      stopTyping();
+      // I prefer keeping the typing indicator while the message is being updated
+      //stopTyping();
       const preview = renderPreview(true);
 
       debug("----- runPromptFlow / ensureResponseMessage / responseMessagePromise: sendTextMessage %s (1. FIRST MESSAGE)", preview.text)
