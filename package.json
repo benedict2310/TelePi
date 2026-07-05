@@ -52,7 +52,9 @@
   },
   "dependencies": {
     "@grammyjs/auto-retry": "^2.0.2",
-    "@mariozechner/pi-coding-agent": "0.70.2",
+    "@earendil-works/pi-agent-core": "^0.80.3",
+    "@earendil-works/pi-ai": "^0.80.3",
+    "@earendil-works/pi-coding-agent": "^0.80.3",
     "grammy": "^1.35.0",
     "minimatch": "^10.2.4"
   },
