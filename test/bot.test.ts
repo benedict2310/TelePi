@@ -5,56 +5,58 @@ import path from "node:path";
 import { vi } from "vitest";
 
 vi.mock("@grammyjs/auto-retry", () => ({
-  autoRetry: () => (prev: any, method: string, payload: any, signal: any) =>
-    prev(method, payload, signal),
+	autoRetry: () => (prev: any, method: string, payload: any, signal: any) =>
+		prev(method, payload, signal),
 }));
 
 vi.mock("node:child_process", () => ({
-  spawnSync: vi.fn().mockReturnValue({ status: 0 }),
+	spawnSync: vi.fn().mockReturnValue({ status: 0 }),
 }));
 
 vi.mock("node:fs/promises", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("node:fs/promises")>();
-  return {
-    ...actual,
-    readFile: vi.fn().mockResolvedValue(Buffer.from("image-bytes")),
-    writeFile: vi.fn().mockResolvedValue(undefined),
-    unlink: vi.fn().mockResolvedValue(undefined),
-  };
+	const actual = await importOriginal<typeof import("node:fs/promises")>();
+	return {
+		...actual,
+		readFile: vi.fn().mockResolvedValue(Buffer.from("image-bytes")),
+		writeFile: vi.fn().mockResolvedValue(undefined),
+		unlink: vi.fn().mockResolvedValue(undefined),
+	};
 });
 
 vi.mock("../src/voice.js", () => ({
-  transcribeAudio: vi.fn().mockResolvedValue({
-    text: "transcribed text",
-    backend: "openai",
-    durationMs: 500,
-  }),
-  getAvailableBackends: vi.fn().mockResolvedValue(["openai"]),
-  getVoiceBackendStatus: vi.fn().mockResolvedValue({ backends: ["openai"], warning: undefined }),
-  _setImportHook: vi.fn(),
-  _resetImportHook: vi.fn(),
+	transcribeAudio: vi.fn().mockResolvedValue({
+		text: "transcribed text",
+		backend: "openai",
+		durationMs: 500,
+	}),
+	getAvailableBackends: vi.fn().mockResolvedValue(["openai"]),
+	getVoiceBackendStatus: vi
+		.fn()
+		.mockResolvedValue({ backends: ["openai"], warning: undefined }),
+	_setImportHook: vi.fn(),
+	_resetImportHook: vi.fn(),
 }));
 
 vi.mock("../src/bot/prompt-inbox.js", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("../src/bot/prompt-inbox.js")>();
-  return {
-    ...actual,
-    startPromptInboxPolling: vi.fn(),
-  };
+	const actual =
+		await importOriginal<typeof import("../src/bot/prompt-inbox.js")>();
+	return {
+		...actual,
+		startPromptInboxPolling: vi.fn(),
+	};
 });
 
-import type { SlashCommandInfo } from "@mariozechner/pi-coding-agent";
-
+import type { SlashCommandInfo } from "@earendil-works/pi-coding-agent";
+import { startPromptInboxPolling } from "../src/bot/prompt-inbox.js";
+import { createBot, registerCommands } from "../src/bot.js";
 import type { TelePiConfig } from "../src/config.js";
 import type {
-  PiSessionCallbacks,
-  PiSessionContext,
-  PiSessionInfo,
-  PiSessionRegistry,
-  PiSessionService,
+	PiSessionCallbacks,
+	PiSessionContext,
+	PiSessionInfo,
+	PiSessionRegistry,
+	PiSessionService,
 } from "../src/pi-session.js";
-import { createBot, registerCommands } from "../src/bot.js";
-import { startPromptInboxPolling } from "../src/bot/prompt-inbox.js";
 import { getAvailableBackends, transcribeAudio } from "../src/voice.js";
 
 type SwitchResult = Awaited<ReturnType<PiSessionService["switchSession"]>>;
@@ -63,3851 +65,5132 @@ const ALLOWED_USER_ID = 123;
 const ALLOWED_CHAT_ID = 456;
 
 function makeTreeNode(
-  entry: Record<string, any>,
-  children: any[] = [],
-  label?: string,
+	entry: Record<string, any>,
+	children: any[] = [],
+	label?: string,
 ): { entry: Record<string, any>; children: any[]; label?: string } {
-  return { entry, children, label };
+	return { entry, children, label };
 }
 
 function makeMessageTreeNode(
-  id: string,
-  role: string,
-  content: string,
-  parentId: string | null = null,
-  children: any[] = [],
-  label?: string,
+	id: string,
+	role: string,
+	content: string,
+	parentId: string | null = null,
+	children: any[] = [],
+	label?: string,
 ): { entry: Record<string, any>; children: any[]; label?: string } {
-  return makeTreeNode(
-    {
-      type: "message",
-      id,
-      parentId,
-      timestamp: "2025-01-01T00:00:00Z",
-      message: { role, content },
-    },
-    children,
-    label,
-  );
+	return makeTreeNode(
+		{
+			type: "message",
+			id,
+			parentId,
+			timestamp: "2025-01-01T00:00:00Z",
+			message: { role, content },
+		},
+		children,
+		label,
+	);
 }
 
 type SetupOptions = {
-  configOverrides?: Partial<TelePiConfig>;
-  piSessionOverrides?: Partial<PiSessionService>;
-  perContextSessionOverrides?: Record<string, Partial<PiSessionService>>;
+	configOverrides?: Partial<TelePiConfig>;
+	piSessionOverrides?: Partial<PiSessionService>;
+	perContextSessionOverrides?: Record<string, Partial<PiSessionService>>;
 };
 
 function createConfig(overrides: Partial<TelePiConfig> = {}): TelePiConfig {
-  return {
-    telegramBotToken: "bot-token",
-    telegramAllowedUserIds: [ALLOWED_USER_ID],
-    telegramAllowedUserIdSet: new Set([ALLOWED_USER_ID]),
-    workspace: "/workspace",
-    piSessionPath: undefined,
-    piModel: undefined,
-    toolVerbosity: "summary",
-    promptInboxDir: undefined,
-    promptInboxIntervalMs: 60000,
-    ...overrides,
-  };
+	return {
+		telegramBotToken: "bot-token",
+		telegramAllowedUserIds: [ALLOWED_USER_ID],
+		telegramAllowedUserIdSet: new Set([ALLOWED_USER_ID]),
+		workspace: "/workspace",
+		piSessionPath: undefined,
+		piModel: undefined,
+		toolVerbosity: "summary",
+		promptInboxDir: undefined,
+		promptInboxIntervalMs: 60000,
+		...overrides,
+	};
 }
 
-function makeContextKey(chatId: number | string = ALLOWED_CHAT_ID, messageThreadId?: number): string {
-  return `${String(chatId)}::${messageThreadId ?? "root"}`;
+function makeContextKey(
+	chatId: number | string = ALLOWED_CHAT_ID,
+	messageThreadId?: number,
+): string {
+	return `${String(chatId)}::${messageThreadId ?? "root"}`;
 }
 
-function makeSlashCommand(name: string, overrides: Record<string, any> = {}): Record<string, any> {
-  return {
-    name,
-    description: `${name} command`,
-    source: "extension",
-    sourceInfo: {
-      source: "extension",
-      scope: "project",
-      path: `/ext/${name}.ts`,
-    },
-    ...overrides,
-  };
+function makeSlashCommand(
+	name: string,
+	overrides: Record<string, any> = {},
+): Record<string, any> {
+	return {
+		name,
+		description: `${name} command`,
+		source: "extension",
+		sourceInfo: {
+			source: "extension",
+			scope: "project",
+			path: `/ext/${name}.ts`,
+		},
+		...overrides,
+	};
 }
 
 function makeTelepiBareNativeMenuSlashCommand(
-  name: string,
-  entries: Array<{ id: string; label: string; commandText: string }>,
-  overrides: Record<string, any> = {},
+	name: string,
+	entries: Array<{ id: string; label: string; commandText: string }>,
+	overrides: Record<string, any> = {},
 ): Record<string, any> {
-  return makeSlashCommand(name, {
-    integrations: {
-      telepi: {
-        bare: {
-          kind: "native-menu",
-          entries,
-        },
-      },
-    },
-    ...overrides,
-  });
+	return makeSlashCommand(name, {
+		integrations: {
+			telepi: {
+				bare: {
+					kind: "native-menu",
+					entries,
+				},
+			},
+		},
+		...overrides,
+	});
 }
 
 async function loadPiCronSlashCommands(): Promise<SlashCommandInfo[]> {
-  const piCronExtensionPath = path.resolve(process.cwd(), "../../PiCron/src/extension/index.ts");
-  if (!existsSync(piCronExtensionPath)) {
-    return [
-      makeTelepiBareNativeMenuSlashCommand("cron", [
-        { id: "picron.cron.list", label: "List schedules", commandText: "/cron list" },
-        { id: "picron.cron.status", label: "Show status", commandText: "/cron status" },
-        { id: "picron.cron.add", label: "Add schedule", commandText: "/cron add" },
-        { id: "picron.cron.manage", label: "Manage schedules", commandText: "/cron manage" },
-      ], { description: "Manage PiCron schedules" }) as SlashCommandInfo,
-    ];
-  }
+	const piCronExtensionPath = path.resolve(
+		process.cwd(),
+		"../../PiCron/src/extension/index.ts",
+	);
+	if (!existsSync(piCronExtensionPath)) {
+		return [
+			makeTelepiBareNativeMenuSlashCommand(
+				"cron",
+				[
+					{
+						id: "picron.cron.list",
+						label: "List schedules",
+						commandText: "/cron list",
+					},
+					{
+						id: "picron.cron.status",
+						label: "Show status",
+						commandText: "/cron status",
+					},
+					{
+						id: "picron.cron.add",
+						label: "Add schedule",
+						commandText: "/cron add",
+					},
+					{
+						id: "picron.cron.manage",
+						label: "Manage schedules",
+						commandText: "/cron manage",
+					},
+				],
+				{ description: "Manage PiCron schedules" },
+			) as SlashCommandInfo,
+		];
+	}
 
-  const { default: piCronExtension } = await import(piCronExtensionPath);
-  const slashCommands: SlashCommandInfo[] = [];
+	const { default: piCronExtension } = await import(piCronExtensionPath);
+	const slashCommands: SlashCommandInfo[] = [];
 
-  piCronExtension({
-    registerCommand: (name: string, options: Record<string, any>) => {
-      slashCommands.push({
-        name,
-        description: options.description,
-        integrations: options.integrations,
-        source: "extension",
-        sourceInfo: {
-          source: "extension",
-          scope: "project",
-          path: "../../PiCron/src/extension/index.ts",
-        } as any,
-      });
-    },
-  } as any);
+	piCronExtension({
+		registerCommand: (name: string, options: Record<string, any>) => {
+			slashCommands.push({
+				name,
+				description: options.description,
+				integrations: options.integrations,
+				source: "extension",
+				sourceInfo: {
+					source: "extension",
+					scope: "project",
+					path: "../../PiCron/src/extension/index.ts",
+				} as any,
+			});
+		},
+	} as any);
 
-  return slashCommands;
+	return slashCommands;
 }
 
 function createMockPiSession(overrides: Partial<PiSessionService> = {}) {
-  let callbacks: PiSessionCallbacks | undefined;
-  let extensionBindings: any;
+	let callbacks: PiSessionCallbacks | undefined;
+	let extensionBindings: any;
 
-  const defaultInfo: PiSessionInfo = {
-    sessionId: "test-id",
-    sessionFile: "/tmp/test.jsonl",
-    workspace: "/workspace",
-    model: "anthropic/claude-sonnet-4-5",
-    sessionName: undefined,
-    modelFallbackMessage: undefined,
-  };
+	const defaultInfo: PiSessionInfo = {
+		sessionId: "test-id",
+		sessionFile: "/tmp/test.jsonl",
+		workspace: "/workspace",
+		model: "anthropic/claude-sonnet-4-5",
+		sessionName: undefined,
+		modelFallbackMessage: undefined,
+	};
 
-  const defaultTree = [
-    makeMessageTreeNode(
-      "root1234",
-      "user",
-      "Start",
-      null,
-      [
-        makeMessageTreeNode(
-          "branch111",
-          "assistant",
-          "Pick a branch",
-          "root1234",
-          [
-            makeMessageTreeNode("leaf1234", "user", "Active leaf", "branch111"),
-            makeMessageTreeNode("leaf5678", "user", "Other leaf", "branch111", [], "saved"),
-          ],
-        ),
-      ],
-    ),
-  ];
+	const defaultTree = [
+		makeMessageTreeNode("root1234", "user", "Start", null, [
+			makeMessageTreeNode(
+				"branch111",
+				"assistant",
+				"Pick a branch",
+				"root1234",
+				[
+					makeMessageTreeNode("leaf1234", "user", "Active leaf", "branch111"),
+					makeMessageTreeNode(
+						"leaf5678",
+						"user",
+						"Other leaf",
+						"branch111",
+						[],
+						"saved",
+					),
+				],
+			),
+		]),
+	];
 
-  const session = {
-    getInfo: vi.fn().mockReturnValue(defaultInfo),
-    isStreaming: vi.fn().mockReturnValue(false),
-    hasActiveSession: vi.fn().mockReturnValue(true),
-    getCurrentWorkspace: vi.fn().mockReturnValue("/workspace"),
-    abort: vi.fn().mockResolvedValue(undefined),
-    newSession: vi.fn().mockResolvedValue({
-      info: {
-        sessionId: "new-id",
-        sessionFile: "/tmp/new.jsonl",
-        workspace: "/workspace",
-        model: "anthropic/claude-sonnet-4-5",
-      },
-      created: true,
-    }),
-    switchSession: vi.fn().mockResolvedValue({
-      sessionId: "switched-id",
-      sessionFile: "/tmp/switched.jsonl",
-      workspace: "/other",
-      model: "anthropic/claude-sonnet-4-5",
-      cancelled: false,
-    }),
-    handback: vi.fn().mockResolvedValue({
-      sessionFile: "/tmp/test.jsonl",
-      workspace: "/workspace",
-    }),
-    listAllSessions: vi.fn().mockResolvedValue([
-      {
-        id: "s1",
-        firstMessage: "Hello session",
-        path: "/s1.jsonl",
-        messageCount: 5,
-        cwd: "/workspace/A",
-        modified: new Date("2025-01-02T00:00:00.000Z"),
-        name: undefined,
-      },
-      {
-        id: "s2",
-        firstMessage: "World session",
-        path: "/s2.jsonl",
-        messageCount: 3,
-        cwd: "/workspace/B",
-        modified: new Date("2025-01-01T00:00:00.000Z"),
-        name: undefined,
-      },
-    ]),
-    listWorkspaces: vi.fn().mockResolvedValue(["/workspace/A", "/workspace/B"]),
-    listModels: vi.fn().mockResolvedValue([
-      {
-        provider: "anthropic",
-        id: "claude-sonnet-4-5",
-        name: "Claude Sonnet",
-        current: true,
-      },
-      {
-        provider: "openai",
-        id: "gpt-4o",
-        name: "GPT-4o",
-        current: false,
-      },
-    ]),
-    setModel: vi.fn().mockResolvedValue("openai/gpt-4o"),
-    getTree: vi.fn().mockReturnValue(defaultTree),
-    getLeafId: vi.fn().mockReturnValue("leaf1234"),
-    getEntry: vi.fn().mockImplementation((id: string) => {
-      const entries = [
-        defaultTree[0].entry,
-        defaultTree[0].children[0].entry,
-        defaultTree[0].children[0].children[0].entry,
-        defaultTree[0].children[0].children[1].entry,
-      ];
-      return entries.find((entry) => entry.id === id);
-    }),
-    getChildren: vi.fn().mockImplementation((id: string) => {
-      if (id === "branch111") {
-        return [defaultTree[0].children[0].children[0].entry, defaultTree[0].children[0].children[1].entry];
-      }
-      if (id === "root1234") {
-        return [defaultTree[0].children[0].entry];
-      }
-      return [];
-    }),
-    navigateTree: vi.fn().mockResolvedValue({ cancelled: false }),
-    setLabel: vi.fn(),
-    getLabels: vi.fn().mockReturnValue([{ id: "leaf5678", label: "saved", description: 'user: "Other leaf"' }]),
-    resolveSessionReference: vi.fn().mockImplementation(async (reference: string) => {
-      const sessions = await session.listAllSessions();
-      const pathMatch = sessions.find((savedSession: { path: string }) => savedSession.path === reference);
-      if (pathMatch) {
-        return {
-          id: pathMatch.id,
-          path: pathMatch.path,
-          cwd: pathMatch.cwd,
-          matchType: "path",
-        };
-      }
+	const session = {
+		getInfo: vi.fn().mockReturnValue(defaultInfo),
+		isStreaming: vi.fn().mockReturnValue(false),
+		hasActiveSession: vi.fn().mockReturnValue(true),
+		getCurrentWorkspace: vi.fn().mockReturnValue("/workspace"),
+		abort: vi.fn().mockResolvedValue(undefined),
+		newSession: vi.fn().mockResolvedValue({
+			info: {
+				sessionId: "new-id",
+				sessionFile: "/tmp/new.jsonl",
+				workspace: "/workspace",
+				model: "anthropic/claude-sonnet-4-5",
+			},
+			created: true,
+		}),
+		switchSession: vi.fn().mockResolvedValue({
+			sessionId: "switched-id",
+			sessionFile: "/tmp/switched.jsonl",
+			workspace: "/other",
+			model: "anthropic/claude-sonnet-4-5",
+			cancelled: false,
+		}),
+		handback: vi.fn().mockResolvedValue({
+			sessionFile: "/tmp/test.jsonl",
+			workspace: "/workspace",
+		}),
+		listAllSessions: vi.fn().mockResolvedValue([
+			{
+				id: "s1",
+				firstMessage: "Hello session",
+				path: "/s1.jsonl",
+				messageCount: 5,
+				cwd: "/workspace/A",
+				modified: new Date("2025-01-02T00:00:00.000Z"),
+				name: undefined,
+			},
+			{
+				id: "s2",
+				firstMessage: "World session",
+				path: "/s2.jsonl",
+				messageCount: 3,
+				cwd: "/workspace/B",
+				modified: new Date("2025-01-01T00:00:00.000Z"),
+				name: undefined,
+			},
+		]),
+		listWorkspaces: vi.fn().mockResolvedValue(["/workspace/A", "/workspace/B"]),
+		listModels: vi.fn().mockResolvedValue([
+			{
+				provider: "anthropic",
+				id: "claude-sonnet-4-5",
+				name: "Claude Sonnet",
+				current: true,
+			},
+			{
+				provider: "openai",
+				id: "gpt-4o",
+				name: "GPT-4o",
+				current: false,
+			},
+		]),
+		setModel: vi.fn().mockResolvedValue("openai/gpt-4o"),
+		getTree: vi.fn().mockReturnValue(defaultTree),
+		getLeafId: vi.fn().mockReturnValue("leaf1234"),
+		getEntry: vi.fn().mockImplementation((id: string) => {
+			const entries = [
+				defaultTree[0].entry,
+				defaultTree[0].children[0].entry,
+				defaultTree[0].children[0].children[0].entry,
+				defaultTree[0].children[0].children[1].entry,
+			];
+			return entries.find((entry) => entry.id === id);
+		}),
+		getChildren: vi.fn().mockImplementation((id: string) => {
+			if (id === "branch111") {
+				return [
+					defaultTree[0].children[0].children[0].entry,
+					defaultTree[0].children[0].children[1].entry,
+				];
+			}
+			if (id === "root1234") {
+				return [defaultTree[0].children[0].entry];
+			}
+			return [];
+		}),
+		navigateTree: vi.fn().mockResolvedValue({ cancelled: false }),
+		setLabel: vi.fn(),
+		getLabels: vi
+			.fn()
+			.mockReturnValue([
+				{ id: "leaf5678", label: "saved", description: 'user: "Other leaf"' },
+			]),
+		resolveSessionReference: vi
+			.fn()
+			.mockImplementation(async (reference: string) => {
+				const sessions = await session.listAllSessions();
+				const pathMatch = sessions.find(
+					(savedSession: { path: string }) => savedSession.path === reference,
+				);
+				if (pathMatch) {
+					return {
+						id: pathMatch.id,
+						path: pathMatch.path,
+						cwd: pathMatch.cwd,
+						matchType: "path",
+					};
+				}
 
-      const idMatch = sessions.find((savedSession: { id: string }) => savedSession.id === reference);
-      if (idMatch) {
-        return {
-          id: idMatch.id,
-          path: idMatch.path,
-          cwd: idMatch.cwd,
-          matchType: "id",
-        };
-      }
+				const idMatch = sessions.find(
+					(savedSession: { id: string }) => savedSession.id === reference,
+				);
+				if (idMatch) {
+					return {
+						id: idMatch.id,
+						path: idMatch.path,
+						cwd: idMatch.cwd,
+						matchType: "id",
+					};
+				}
 
-      return { id: "s1", path: reference, cwd: "/workspace/A", matchType: "path" };
-    }),
-    resolveWorkspaceForSession: vi.fn().mockResolvedValue("/workspace/A"),
-    listSlashCommands: vi.fn().mockResolvedValue([]),
-    bindExtensions: vi.fn().mockImplementation(async (bindings: any) => {
-      extensionBindings = bindings;
-    }),
-    prompt: vi.fn().mockResolvedValue(undefined),
-    getSession: vi.fn().mockReturnValue({
-      agent: { waitForIdle: vi.fn().mockResolvedValue(undefined) },
-    }),
-    fork: vi.fn().mockResolvedValue({ cancelled: false }),
-    reload: vi.fn().mockResolvedValue(undefined),
-    subscribe: vi.fn().mockImplementation((nextCallbacks: PiSessionCallbacks) => {
-      callbacks = nextCallbacks;
-      return () => {
-        if (callbacks === nextCallbacks) {
-          callbacks = undefined;
-        }
-      };
-    }),
-    dispose: vi.fn(),
-    getContextUsage: vi.fn().mockReturnValue({
-      tokens: 4500,
-      contextWindow: 128000,
-      percent: 3.52,
-    }),
-    getSessionStats: vi.fn().mockReturnValue({
-      userMessages: 5,
-      assistantMessages: 5,
-      toolCalls: 12,
-      toolResults: 12,
-      totalMessages: 20,
-      tokens: {
-        input: 40000,
-        output: 8000,
-        cacheRead: 2000,
-        cacheWrite: 1000,
-        total: 50000,
-      },
-      cost: 0.05,
-      contextUsage: {
-        tokens: 4500,
-        contextWindow: 128000,
-        percent: 3.52,
-      },
-      sessionFile: "/tmp/test.jsonl",
-      sessionId: "test-id",
-    }),
-  } satisfies Partial<PiSessionService>;
+				return {
+					id: "s1",
+					path: reference,
+					cwd: "/workspace/A",
+					matchType: "path",
+				};
+			}),
+		resolveWorkspaceForSession: vi.fn().mockResolvedValue("/workspace/A"),
+		listSlashCommands: vi.fn().mockResolvedValue([]),
+		bindExtensions: vi.fn().mockImplementation(async (bindings: any) => {
+			extensionBindings = bindings;
+		}),
+		prompt: vi.fn().mockResolvedValue(undefined),
+		getSession: vi.fn().mockReturnValue({
+			agent: { waitForIdle: vi.fn().mockResolvedValue(undefined) },
+		}),
+		fork: vi.fn().mockResolvedValue({ cancelled: false }),
+		reload: vi.fn().mockResolvedValue(undefined),
+		subscribe: vi
+			.fn()
+			.mockImplementation((nextCallbacks: PiSessionCallbacks) => {
+				callbacks = nextCallbacks;
+				return () => {
+					if (callbacks === nextCallbacks) {
+						callbacks = undefined;
+					}
+				};
+			}),
+		dispose: vi.fn(),
+		getContextUsage: vi.fn().mockReturnValue({
+			tokens: 4500,
+			contextWindow: 128000,
+			percent: 3.52,
+		}),
+		getSessionStats: vi.fn().mockReturnValue({
+			userMessages: 5,
+			assistantMessages: 5,
+			toolCalls: 12,
+			toolResults: 12,
+			totalMessages: 20,
+			tokens: {
+				input: 40000,
+				output: 8000,
+				cacheRead: 2000,
+				cacheWrite: 1000,
+				total: 50000,
+			},
+			cost: 0.05,
+			contextUsage: {
+				tokens: 4500,
+				contextWindow: 128000,
+				percent: 3.52,
+			},
+			sessionFile: "/tmp/test.jsonl",
+			sessionId: "test-id",
+		}),
+	} satisfies Partial<PiSessionService>;
 
-  Object.assign(session, overrides);
+	Object.assign(session, overrides);
 
-  return {
-    service: session as unknown as PiSessionService,
-    getCallbacks: () => callbacks,
-    getExtensionBindings: () => extensionBindings,
-    emitTextDelta: (delta: string) => callbacks?.onTextDelta(delta),
-    emitToolStart: (toolName: string, toolCallId: string) => callbacks?.onToolStart(toolName, toolCallId),
-    emitToolUpdate: (toolCallId: string, partialResult: string) =>
-      callbacks?.onToolUpdate(toolCallId, partialResult),
-    emitToolEnd: (toolCallId: string, isError: boolean) => callbacks?.onToolEnd(toolCallId, isError),
-    emitAgentEnd: () => callbacks?.onAgentEnd(),
-  };
+	return {
+		service: session as unknown as PiSessionService,
+		getCallbacks: () => callbacks,
+		getExtensionBindings: () => extensionBindings,
+		emitTextDelta: (delta: string) => callbacks?.onTextDelta(delta),
+		emitToolStart: (toolName: string, toolCallId: string) =>
+			callbacks?.onToolStart(toolName, toolCallId),
+		emitToolUpdate: (toolCallId: string, partialResult: string) =>
+			callbacks?.onToolUpdate(toolCallId, partialResult),
+		emitToolEnd: (toolCallId: string, isError: boolean) =>
+			callbacks?.onToolEnd(toolCallId, isError),
+		emitAgentEnd: () => callbacks?.onAgentEnd(),
+	};
 }
 
 function createMockPiSessionRegistry(options: SetupOptions = {}) {
-  const services = new Map<string, ReturnType<typeof createMockPiSession>>();
-  const defaultKey = makeContextKey();
-  const buildSession = (context: PiSessionContext) => {
-    const contextKey = makeContextKey(context.chatId, context.messageThreadId);
-    return createMockPiSession({
-      ...options.piSessionOverrides,
-      ...options.perContextSessionOverrides?.[contextKey],
-    });
-  };
+	const services = new Map<string, ReturnType<typeof createMockPiSession>>();
+	const defaultKey = makeContextKey();
+	const buildSession = (context: PiSessionContext) => {
+		const contextKey = makeContextKey(context.chatId, context.messageThreadId);
+		return createMockPiSession({
+			...options.piSessionOverrides,
+			...options.perContextSessionOverrides?.[contextKey],
+		});
+	};
 
-  services.set(defaultKey, buildSession({ chatId: ALLOWED_CHAT_ID }));
+	services.set(defaultKey, buildSession({ chatId: ALLOWED_CHAT_ID }));
 
-  const defaultInfo: PiSessionInfo = {
-    sessionId: "(no active session)",
-    sessionFile: undefined,
-    workspace: options.configOverrides?.workspace ?? "/workspace",
-    sessionName: undefined,
-    modelFallbackMessage: undefined,
-    model: undefined,
-  };
+	const defaultInfo: PiSessionInfo = {
+		sessionId: "(no active session)",
+		sessionFile: undefined,
+		workspace: options.configOverrides?.workspace ?? "/workspace",
+		sessionName: undefined,
+		modelFallbackMessage: undefined,
+		model: undefined,
+	};
 
-  const registry = {
-    getOrCreate: vi.fn(async (context: PiSessionContext) => {
-      const contextKey = makeContextKey(context.chatId, context.messageThreadId);
-      let entry = services.get(contextKey);
-      if (!entry) {
-        entry = buildSession(context);
-        services.set(contextKey, entry);
-      }
-      return entry.service;
-    }),
-    get: vi.fn((context: PiSessionContext) => {
-      const contextKey = makeContextKey(context.chatId, context.messageThreadId);
-      return services.get(contextKey)?.service;
-    }),
-    has: vi.fn((context: PiSessionContext) => {
-      const contextKey = makeContextKey(context.chatId, context.messageThreadId);
-      return services.has(contextKey);
-    }),
-    getInfo: vi.fn((context: PiSessionContext) => {
-      const contextKey = makeContextKey(context.chatId, context.messageThreadId);
-      return services.get(contextKey)?.service.getInfo() ?? defaultInfo;
-    }),
-    remove: vi.fn((context: PiSessionContext) => {
-      const contextKey = makeContextKey(context.chatId, context.messageThreadId);
-      services.get(contextKey)?.service.dispose();
-      services.delete(contextKey);
-    }),
-    dispose: vi.fn(),
-  } satisfies Partial<PiSessionRegistry>;
+	const registry = {
+		getOrCreate: vi.fn(async (context: PiSessionContext) => {
+			const contextKey = makeContextKey(
+				context.chatId,
+				context.messageThreadId,
+			);
+			let entry = services.get(contextKey);
+			if (!entry) {
+				entry = buildSession(context);
+				services.set(contextKey, entry);
+			}
+			return entry.service;
+		}),
+		get: vi.fn((context: PiSessionContext) => {
+			const contextKey = makeContextKey(
+				context.chatId,
+				context.messageThreadId,
+			);
+			return services.get(contextKey)?.service;
+		}),
+		has: vi.fn((context: PiSessionContext) => {
+			const contextKey = makeContextKey(
+				context.chatId,
+				context.messageThreadId,
+			);
+			return services.has(contextKey);
+		}),
+		getInfo: vi.fn((context: PiSessionContext) => {
+			const contextKey = makeContextKey(
+				context.chatId,
+				context.messageThreadId,
+			);
+			return services.get(contextKey)?.service.getInfo() ?? defaultInfo;
+		}),
+		remove: vi.fn((context: PiSessionContext) => {
+			const contextKey = makeContextKey(
+				context.chatId,
+				context.messageThreadId,
+			);
+			services.get(contextKey)?.service.dispose();
+			services.delete(contextKey);
+		}),
+		dispose: vi.fn(),
+	} satisfies Partial<PiSessionRegistry>;
 
-  return {
-    registry: registry as PiSessionRegistry,
-    getSession(chatId: number | string = ALLOWED_CHAT_ID, messageThreadId?: number) {
-      return services.get(makeContextKey(chatId, messageThreadId));
-    },
-  };
+	return {
+		registry: registry as PiSessionRegistry,
+		getSession(
+			chatId: number | string = ALLOWED_CHAT_ID,
+			messageThreadId?: number,
+		) {
+			return services.get(makeContextKey(chatId, messageThreadId));
+		},
+	};
 }
 
 function setupBot(options: SetupOptions = {}) {
-  const registry = createMockPiSessionRegistry(options);
-  const pi = registry.getSession()!;
-  const bot = createBot(createConfig(options.configOverrides), registry.registry);
-  let messageId = 0;
+	const registry = createMockPiSessionRegistry(options);
+	const pi = registry.getSession()!;
+	const bot = createBot(
+		createConfig(options.configOverrides),
+		registry.registry,
+	);
+	let messageId = 0;
 
-  const api = {
-    sendMessage: vi.fn().mockImplementation(async (chatId: number | string, text: string, opts?: any) => ({
-      message_id: ++messageId,
-      chat: { id: chatId },
-      text,
-      ...opts,
-    })),
-    editMessageText: vi.fn().mockResolvedValue(true),
-    editMessageReplyMarkup: vi.fn().mockResolvedValue(true),
-    sendChatAction: vi.fn().mockResolvedValue(true),
-    setMyCommands: vi.fn().mockResolvedValue(true),
-    answerCallbackQuery: vi.fn().mockResolvedValue(true),
-    getFile: vi.fn().mockImplementation(async (fileId: string) => ({
-      file_id: fileId,
-      file_path: "voice/file.ogg",
-    })),
-  };
+	const api = {
+		sendMessage: vi
+			.fn()
+			.mockImplementation(
+				async (chatId: number | string, text: string, opts?: any) => ({
+					message_id: ++messageId,
+					chat: { id: chatId },
+					text,
+					...opts,
+				}),
+			),
+		editMessageText: vi.fn().mockResolvedValue(true),
+		editMessageReplyMarkup: vi.fn().mockResolvedValue(true),
+		sendChatAction: vi.fn().mockResolvedValue(true),
+		setMyCommands: vi.fn().mockResolvedValue(true),
+		answerCallbackQuery: vi.fn().mockResolvedValue(true),
+		getFile: vi.fn().mockImplementation(async (fileId: string) => ({
+			file_id: fileId,
+			file_path: "voice/file.ogg",
+		})),
+	};
 
-  bot.api.config.use(async (_prev, method, payload) => {
-    switch (method) {
-      case "sendMessage":
-        return {
-          ok: true,
-          result: await api.sendMessage(payload.chat_id, payload.text, {
-            parse_mode: payload.parse_mode,
-            reply_markup: payload.reply_markup,
-            message_thread_id: payload.message_thread_id,
-          }),
-        };
-      case "editMessageText":
-        await api.editMessageText(payload.chat_id, payload.message_id, payload.text, {
-          parse_mode: payload.parse_mode,
-          reply_markup: payload.reply_markup,
-        });
-        return { ok: true, result: true };
-      case "editMessageReplyMarkup":
-        await api.editMessageReplyMarkup(payload.chat_id, payload.message_id, {
-          reply_markup: payload.reply_markup,
-        });
-        return { ok: true, result: true };
-      case "sendChatAction":
-        await api.sendChatAction(payload.chat_id, payload.action, payload.message_thread_id);
-        return { ok: true, result: true };
-      case "setMyCommands": {
-        const other = payload.scope || payload.language_code
-          ? {
-              scope: payload.scope,
-              language_code: payload.language_code,
-            }
-          : undefined;
-        await api.setMyCommands(payload.commands, other);
-        return { ok: true, result: true };
-      }
-      case "answerCallbackQuery":
-        await api.answerCallbackQuery(payload.callback_query_id, {
-          text: payload.text,
-        });
-        return { ok: true, result: true };
-      case "getFile":
-        return {
-          ok: true,
-          result: await api.getFile(payload.file_id),
-        };
-      default:
-        throw new Error(`Unexpected Telegram API method in test: ${method}`);
-    }
-  });
+	bot.api.config.use(async (_prev, method, payload) => {
+		switch (method) {
+			case "sendMessage":
+				return {
+					ok: true,
+					result: await api.sendMessage(payload.chat_id, payload.text, {
+						parse_mode: payload.parse_mode,
+						reply_markup: payload.reply_markup,
+						message_thread_id: payload.message_thread_id,
+					}),
+				};
+			case "editMessageText":
+				await api.editMessageText(
+					payload.chat_id,
+					payload.message_id,
+					payload.text,
+					{
+						parse_mode: payload.parse_mode,
+						reply_markup: payload.reply_markup,
+					},
+				);
+				return { ok: true, result: true };
+			case "editMessageReplyMarkup":
+				await api.editMessageReplyMarkup(payload.chat_id, payload.message_id, {
+					reply_markup: payload.reply_markup,
+				});
+				return { ok: true, result: true };
+			case "sendChatAction":
+				await api.sendChatAction(
+					payload.chat_id,
+					payload.action,
+					payload.message_thread_id,
+				);
+				return { ok: true, result: true };
+			case "setMyCommands": {
+				const other =
+					payload.scope || payload.language_code
+						? {
+								scope: payload.scope,
+								language_code: payload.language_code,
+							}
+						: undefined;
+				await api.setMyCommands(payload.commands, other);
+				return { ok: true, result: true };
+			}
+			case "answerCallbackQuery":
+				await api.answerCallbackQuery(payload.callback_query_id, {
+					text: payload.text,
+				});
+				return { ok: true, result: true };
+			case "getFile":
+				return {
+					ok: true,
+					result: await api.getFile(payload.file_id),
+				};
+			default:
+				throw new Error(`Unexpected Telegram API method in test: ${method}`);
+		}
+	});
 
-  (bot as any).botInfo = {
-    id: 1,
-    is_bot: true,
-    first_name: "TelePi",
-    username: "telepi_test_bot",
-    can_join_groups: false,
-    can_read_all_group_messages: false,
-    supports_inline_queries: false,
-  };
+	(bot as any).botInfo = {
+		id: 1,
+		is_bot: true,
+		first_name: "TelePi",
+		username: "telepi_test_bot",
+		can_join_groups: false,
+		can_read_all_group_messages: false,
+		supports_inline_queries: false,
+	};
 
-  return { bot, pi, api, registry };
+	return { bot, pi, api, registry };
 }
 
 function createTestUpdate(overrides: Record<string, any> = {}): any {
-  const { message: messageOverrides = {}, ...updateOverrides } = overrides;
-  const update = {
-    update_id: Math.floor(Math.random() * 1_000_000),
-    ...updateOverrides,
-    message: {
-      message_id: 1,
-      date: Math.floor(Date.now() / 1000),
-      chat: { id: ALLOWED_CHAT_ID, type: "private" },
-      from: { id: ALLOWED_USER_ID, is_bot: false, first_name: "Test" },
-      text: "/start",
-      ...messageOverrides,
-    },
-  } as any;
+	const { message: messageOverrides = {}, ...updateOverrides } = overrides;
+	const update = {
+		update_id: Math.floor(Math.random() * 1_000_000),
+		...updateOverrides,
+		message: {
+			message_id: 1,
+			date: Math.floor(Date.now() / 1000),
+			chat: { id: ALLOWED_CHAT_ID, type: "private" },
+			from: { id: ALLOWED_USER_ID, is_bot: false, first_name: "Test" },
+			text: "/start",
+			...messageOverrides,
+		},
+	} as any;
 
-  const text = update.message?.text;
-  if (typeof text === "string" && text.startsWith("/") && !update.message.entities) {
-    const commandLength = text.split(/\s+/, 1)[0]?.length ?? text.length;
-    update.message.entities = [{ offset: 0, length: commandLength, type: "bot_command" }];
-  }
+	const text = update.message?.text;
+	if (
+		typeof text === "string" &&
+		text.startsWith("/") &&
+		!update.message.entities
+	) {
+		const commandLength = text.split(/\s+/, 1)[0]?.length ?? text.length;
+		update.message.entities = [
+			{ offset: 0, length: commandLength, type: "bot_command" },
+		];
+	}
 
-  return update;
+	return update;
 }
 
 function createVoiceUpdate(overrides: Record<string, any> = {}): any {
-  const { message: messageOverrides = {}, ...updateOverrides } = overrides;
-  return {
-    update_id: Math.floor(Math.random() * 1_000_000),
-    ...updateOverrides,
-    message: {
-      message_id: 1,
-      date: Math.floor(Date.now() / 1000),
-      chat: { id: ALLOWED_CHAT_ID, type: "private" },
-      from: { id: ALLOWED_USER_ID, is_bot: false, first_name: "Test" },
-      voice: {
-        file_id: "voice-file-id",
-        file_unique_id: "voice-unique",
-        duration: 5,
-      },
-      ...messageOverrides,
-    },
-  };
+	const { message: messageOverrides = {}, ...updateOverrides } = overrides;
+	return {
+		update_id: Math.floor(Math.random() * 1_000_000),
+		...updateOverrides,
+		message: {
+			message_id: 1,
+			date: Math.floor(Date.now() / 1000),
+			chat: { id: ALLOWED_CHAT_ID, type: "private" },
+			from: { id: ALLOWED_USER_ID, is_bot: false, first_name: "Test" },
+			voice: {
+				file_id: "voice-file-id",
+				file_unique_id: "voice-unique",
+				duration: 5,
+			},
+			...messageOverrides,
+		},
+	};
 }
 
 function createPhotoUpdate(overrides: Record<string, any> = {}): any {
-  const { message: messageOverrides = {}, ...updateOverrides } = overrides;
-  return {
-    update_id: Math.floor(Math.random() * 1_000_000),
-    ...updateOverrides,
-    message: {
-      message_id: 1,
-      date: Math.floor(Date.now() / 1000),
-      chat: { id: ALLOWED_CHAT_ID, type: "private" },
-      from: { id: ALLOWED_USER_ID, is_bot: false, first_name: "Test" },
-      caption: "Check this graph",
-      photo: [
-        { file_id: "photo-small", file_unique_id: "photo-small-unique", width: 100, height: 100, file_size: 1000 },
-        { file_id: "photo-big", file_unique_id: "photo-big-unique", width: 500, height: 500, file_size: 5000 },
-      ],
-      ...messageOverrides,
-    },
-  };
+	const { message: messageOverrides = {}, ...updateOverrides } = overrides;
+	return {
+		update_id: Math.floor(Math.random() * 1_000_000),
+		...updateOverrides,
+		message: {
+			message_id: 1,
+			date: Math.floor(Date.now() / 1000),
+			chat: { id: ALLOWED_CHAT_ID, type: "private" },
+			from: { id: ALLOWED_USER_ID, is_bot: false, first_name: "Test" },
+			caption: "Check this graph",
+			photo: [
+				{
+					file_id: "photo-small",
+					file_unique_id: "photo-small-unique",
+					width: 100,
+					height: 100,
+					file_size: 1000,
+				},
+				{
+					file_id: "photo-big",
+					file_unique_id: "photo-big-unique",
+					width: 500,
+					height: 500,
+					file_size: 5000,
+				},
+			],
+			...messageOverrides,
+		},
+	};
 }
 
 function createDocumentUpdate(overrides: Record<string, any> = {}): any {
-  const { message: messageOverrides = {}, ...updateOverrides } = overrides;
-  return {
-    update_id: Math.floor(Math.random() * 1_000_000),
-    ...updateOverrides,
-    message: {
-      message_id: 1,
-      date: Math.floor(Date.now() / 1000),
-      chat: { id: ALLOWED_CHAT_ID, type: "private" },
-      from: { id: ALLOWED_USER_ID, is_bot: false, first_name: "Test" },
-      document: {
-        file_id: "document-image-id",
-        file_unique_id: "document-image-unique",
-        file_name: "diagram.png",
-        mime_type: "image/png",
-        file_size: 2048,
-      },
-      ...messageOverrides,
-    },
-  };
+	const { message: messageOverrides = {}, ...updateOverrides } = overrides;
+	return {
+		update_id: Math.floor(Math.random() * 1_000_000),
+		...updateOverrides,
+		message: {
+			message_id: 1,
+			date: Math.floor(Date.now() / 1000),
+			chat: { id: ALLOWED_CHAT_ID, type: "private" },
+			from: { id: ALLOWED_USER_ID, is_bot: false, first_name: "Test" },
+			document: {
+				file_id: "document-image-id",
+				file_unique_id: "document-image-unique",
+				file_name: "diagram.png",
+				mime_type: "image/png",
+				file_size: 2048,
+			},
+			...messageOverrides,
+		},
+	};
 }
 
-function createCallbackUpdate(data: string, overrides: Record<string, any> = {}): any {
-  const { callback_query: callbackQueryOverrides = {}, ...updateOverrides } = overrides;
-  const { message: callbackMessageOverrides = {}, ...callbackQueryRest } = callbackQueryOverrides;
+function createCallbackUpdate(
+	data: string,
+	overrides: Record<string, any> = {},
+): any {
+	const { callback_query: callbackQueryOverrides = {}, ...updateOverrides } =
+		overrides;
+	const { message: callbackMessageOverrides = {}, ...callbackQueryRest } =
+		callbackQueryOverrides;
 
-  return {
-    update_id: Math.floor(Math.random() * 1_000_000),
-    ...updateOverrides,
-    callback_query: {
-      id: "cb_1",
-      chat_instance: "test",
-      from: { id: ALLOWED_USER_ID, is_bot: false, first_name: "Test" },
-      message: {
-        message_id: 1,
-        date: Math.floor(Date.now() / 1000),
-        chat: { id: ALLOWED_CHAT_ID, type: "private" },
-        from: { id: 1, is_bot: true, first_name: "TelePi" },
-        text: "Pick one",
-        ...callbackMessageOverrides,
-      },
-      data,
-      ...callbackQueryRest,
-    },
-  };
+	return {
+		update_id: Math.floor(Math.random() * 1_000_000),
+		...updateOverrides,
+		callback_query: {
+			id: "cb_1",
+			chat_instance: "test",
+			from: { id: ALLOWED_USER_ID, is_bot: false, first_name: "Test" },
+			message: {
+				message_id: 1,
+				date: Math.floor(Date.now() / 1000),
+				chat: { id: ALLOWED_CHAT_ID, type: "private" },
+				from: { id: 1, is_bot: true, first_name: "TelePi" },
+				text: "Pick one",
+				...callbackMessageOverrides,
+			},
+			data,
+			...callbackQueryRest,
+		},
+	};
 }
 
 async function nextTick(): Promise<void> {
-  await new Promise((resolve) => setTimeout(resolve, 0));
+	await new Promise((resolve) => setTimeout(resolve, 0));
 }
 
-function getReplyMarkupData(api: ReturnType<typeof setupBot>["api"], callIndex = 0): string[] {
-  const markup = api.sendMessage.mock.calls[callIndex]?.[2]?.reply_markup;
-  return markup?.inline_keyboard?.flat().map((button: any) => button.callback_data) ?? [];
+function getReplyMarkupData(
+	api: ReturnType<typeof setupBot>["api"],
+	callIndex = 0,
+): string[] {
+	const markup = api.sendMessage.mock.calls[callIndex]?.[2]?.reply_markup;
+	return (
+		markup?.inline_keyboard
+			?.flat()
+			.map((button: any) => button.callback_data) ?? []
+	);
 }
 
-function getReplyMarkupTexts(api: ReturnType<typeof setupBot>["api"], callIndex = 0): string[] {
-  const markup = api.sendMessage.mock.calls[callIndex]?.[2]?.reply_markup;
-  return markup?.inline_keyboard?.flat().map((button: any) => button.text) ?? [];
+function getReplyMarkupTexts(
+	api: ReturnType<typeof setupBot>["api"],
+	callIndex = 0,
+): string[] {
+	const markup = api.sendMessage.mock.calls[callIndex]?.[2]?.reply_markup;
+	return (
+		markup?.inline_keyboard?.flat().map((button: any) => button.text) ?? []
+	);
 }
 
 function getReplyMarkupButtons(
-  api: ReturnType<typeof setupBot>["api"],
-  callIndex = 0,
+	api: ReturnType<typeof setupBot>["api"],
+	callIndex = 0,
 ): Array<{ text: string; callback_data: string }> {
-  const markup = api.sendMessage.mock.calls[callIndex]?.[2]?.reply_markup;
-  return markup?.inline_keyboard?.flat() ?? [];
+	const markup = api.sendMessage.mock.calls[callIndex]?.[2]?.reply_markup;
+	return markup?.inline_keyboard?.flat() ?? [];
 }
 
-function getEditedReplyMarkupData(api: ReturnType<typeof setupBot>["api"], callIndex = 0): string[] {
-  const markup = api.editMessageText.mock.calls[callIndex]?.[3]?.reply_markup;
-  return markup?.inline_keyboard?.flat().map((button: any) => button.callback_data) ?? [];
+function getEditedReplyMarkupData(
+	api: ReturnType<typeof setupBot>["api"],
+	callIndex = 0,
+): string[] {
+	const markup = api.editMessageText.mock.calls[callIndex]?.[3]?.reply_markup;
+	return (
+		markup?.inline_keyboard
+			?.flat()
+			.map((button: any) => button.callback_data) ?? []
+	);
 }
 
-function getEditedReplyMarkupTexts(api: ReturnType<typeof setupBot>["api"], callIndex = 0): string[] {
-  const markup = api.editMessageText.mock.calls[callIndex]?.[3]?.reply_markup;
-  return markup?.inline_keyboard?.flat().map((button: any) => button.text) ?? [];
+function getEditedReplyMarkupTexts(
+	api: ReturnType<typeof setupBot>["api"],
+	callIndex = 0,
+): string[] {
+	const markup = api.editMessageText.mock.calls[callIndex]?.[3]?.reply_markup;
+	return (
+		markup?.inline_keyboard?.flat().map((button: any) => button.text) ?? []
+	);
 }
 
 function getEditedReplyMarkupButtons(
-  api: ReturnType<typeof setupBot>["api"],
-  callIndex = 0,
+	api: ReturnType<typeof setupBot>["api"],
+	callIndex = 0,
 ): Array<{ text: string; callback_data: string }> {
-  const replyMarkupFromText = api.editMessageText.mock.calls[callIndex]?.[3]?.reply_markup;
-  if (replyMarkupFromText) {
-    return replyMarkupFromText.inline_keyboard?.flat() ?? [];
-  }
+	const replyMarkupFromText =
+		api.editMessageText.mock.calls[callIndex]?.[3]?.reply_markup;
+	if (replyMarkupFromText) {
+		return replyMarkupFromText.inline_keyboard?.flat() ?? [];
+	}
 
-  const replyMarkupFromMarkup = api.editMessageReplyMarkup.mock.calls[callIndex]?.[2]?.reply_markup;
-  return replyMarkupFromMarkup?.inline_keyboard?.flat() ?? [];
+	const replyMarkupFromMarkup =
+		api.editMessageReplyMarkup.mock.calls[callIndex]?.[2]?.reply_markup;
+	return replyMarkupFromMarkup?.inline_keyboard?.flat() ?? [];
 }
 
-function getSetMyCommandsCall(api: ReturnType<typeof setupBot>["api"], callIndex = 0): {
-  commands: Array<{ command: string; description: string }>;
-  scope?: { type: string; chat_id?: number | string };
-  language_code?: string;
-} | undefined {
-  const [commands, other] = api.setMyCommands.mock.calls[callIndex] ?? [];
-  if (!commands) {
-    return undefined;
-  }
+function getSetMyCommandsCall(
+	api: ReturnType<typeof setupBot>["api"],
+	callIndex = 0,
+):
+	| {
+			commands: Array<{ command: string; description: string }>;
+			scope?: { type: string; chat_id?: number | string };
+			language_code?: string;
+	  }
+	| undefined {
+	const [commands, other] = api.setMyCommands.mock.calls[callIndex] ?? [];
+	if (!commands) {
+		return undefined;
+	}
 
-  return {
-    commands,
-    scope: other?.scope,
-    language_code: other?.language_code,
-  };
+	return {
+		commands,
+		scope: other?.scope,
+		language_code: other?.language_code,
+	};
 }
 
 function generateMockSessions(count: number) {
-  return Array.from({ length: count }, (_, i) => ({
-    id: `s${i}`,
-    firstMessage: `Session ${i}`,
-    path: `/s${i}.jsonl`,
-    messageCount: i + 1,
-    cwd: `/workspace/${i % 2 === 0 ? "A" : "B"}`,
-    modified: new Date(`2025-01-${String((count - i) % 28 || 28).padStart(2, "0")}T00:00:00.000Z`),
-    name: undefined,
-  }));
+	return Array.from({ length: count }, (_, i) => ({
+		id: `s${i}`,
+		firstMessage: `Session ${i}`,
+		path: `/s${i}.jsonl`,
+		messageCount: i + 1,
+		cwd: `/workspace/${i % 2 === 0 ? "A" : "B"}`,
+		modified: new Date(
+			`2025-01-${String((count - i) % 28 || 28).padStart(2, "0")}T00:00:00.000Z`,
+		),
+		name: undefined,
+	}));
 }
 
 function generateMockModels(count: number) {
-  return Array.from({ length: count }, (_, i) => ({
-    provider: `provider${i}`,
-    id: `model-${i}`,
-    name: `Model ${i}`,
-    current: i === 0,
-  }));
+	return Array.from({ length: count }, (_, i) => ({
+		provider: `provider${i}`,
+		id: `model-${i}`,
+		name: `Model ${i}`,
+		current: i === 0,
+	}));
 }
 
 function generateMockWorkspaces(count: number): string[] {
-  return Array.from({ length: count }, (_, i) => `/workspace/W${i}`);
+	return Array.from({ length: count }, (_, i) => `/workspace/W${i}`);
 }
 
 function generatePagedTree(totalEntries: number) {
-  const makeBranch = (index: number) =>
-    makeMessageTreeNode(`node${index.toString().padStart(4, "0")}`, "user", `Tree node ${index}`, "root0000");
+	const makeBranch = (index: number) =>
+		makeMessageTreeNode(
+			`node${index.toString().padStart(4, "0")}`,
+			"user",
+			`Tree node ${index}`,
+			"root0000",
+		);
 
-  return [
-    makeMessageTreeNode(
-      "root0000",
-      "user",
-      "Root",
-      null,
-      Array.from({ length: totalEntries - 1 }, (_, i) => makeBranch(i + 1)),
-    ),
-  ];
+	return [
+		makeMessageTreeNode(
+			"root0000",
+			"user",
+			"Root",
+			null,
+			Array.from({ length: totalEntries - 1 }, (_, i) => makeBranch(i + 1)),
+		),
+	];
 }
 
 describe("createBot", () => {
-  beforeEach(() => {
-    vi.restoreAllMocks();
-    vi.clearAllMocks();
-    vi.unstubAllGlobals();
-    vi.mocked(getAvailableBackends).mockResolvedValue(["openai"]);
-    vi.mocked(transcribeAudio).mockResolvedValue({
-      text: "transcribed text",
-      backend: "openai",
-      durationMs: 500,
-    });
-    vi.mocked(readFile).mockResolvedValue(Buffer.from("image-bytes"));
-    vi.mocked(writeFile).mockResolvedValue(undefined);
-    vi.mocked(unlink).mockResolvedValue(undefined);
-    vi.stubGlobal(
-      "fetch",
-      vi.fn().mockResolvedValue({
-        ok: true,
-        arrayBuffer: () => Promise.resolve(new ArrayBuffer(100)),
-      }),
-    );
-  });
-
-  afterEach(() => {
-    vi.unstubAllGlobals();
-  });
-
-  it("starts prompt inbox polling when configured", () => {
-    setupBot({
-      configOverrides: {
-        promptInboxDir: "/tmp/telepi-inbox",
-        promptInboxIntervalMs: 15000,
-      },
-    });
-
-    expect(startPromptInboxPolling).toHaveBeenCalledWith(expect.objectContaining({
-      inboxDir: "/tmp/telepi-inbox",
-      intervalMs: 15000,
-      target: { chatId: ALLOWED_USER_ID },
-    }));
-  });
-
-  it("stops prompt inbox polling when the bot stops", () => {
-    const stopPolling = vi.fn();
-    vi.mocked(startPromptInboxPolling).mockReturnValue(stopPolling);
-    const { bot } = setupBot({
-      configOverrides: {
-        promptInboxDir: "/tmp/telepi-inbox",
-      },
-    });
-
-    bot.stop();
-
-    expect(stopPolling).toHaveBeenCalledTimes(1);
-  });
-
-  it("allows authorized users through the middleware and handles /start", async () => {
-    const { bot, api } = setupBot();
-
-    await bot.handleUpdate(createTestUpdate({ message: { text: "/start" } }));
-
-    expect(api.sendMessage).toHaveBeenCalledTimes(1);
-    expect(api.sendMessage.mock.calls[0]?.[1]).toContain("TelePi is ready.");
-    expect(api.sendMessage.mock.calls[0]?.[1]).toContain("Session ID");
-  });
-
-  it("handles /help and /retry flows", async () => {
-    const { bot, pi, api } = setupBot();
-
-    await bot.handleUpdate(createTestUpdate({ message: { text: "/help" } }));
-    expect(api.sendMessage.mock.calls[0]?.[1]).toContain("/retry");
-    expect(api.sendMessage.mock.calls[0]?.[1]).toContain("Each Telegram chat/topic has its own Pi session");
-
-    api.sendMessage.mockClear();
-    await bot.handleUpdate(createTestUpdate({ message: { text: "/retry" } }));
-    expect(api.sendMessage.mock.calls[0]?.[1]).toContain("Nothing to retry yet");
-
-    const promptMock = pi.service.prompt as ReturnType<typeof vi.fn>;
-    promptMock.mockImplementation(async () => {
-      pi.emitTextDelta("Retried response");
-      pi.emitAgentEnd();
-    });
-
-    await bot.handleUpdate(createTestUpdate({ message: { text: "retry me" } }));
-    await bot.handleUpdate(createTestUpdate({ message: { text: "/retry" } }));
-
-    expect(pi.service.prompt).toHaveBeenNthCalledWith(1, "retry me");
-    expect(pi.service.prompt).toHaveBeenNthCalledWith(2, "retry me");
-  });
-
-  it("keeps /retry state isolated per topic", async () => {
-    const { bot, api } = setupBot();
-
-    await bot.handleUpdate(
-      createTestUpdate({
-        message: {
-          text: "topic one retry",
-          chat: { id: ALLOWED_CHAT_ID, type: "supergroup" },
-          message_thread_id: 101,
-        },
-      }),
-    );
-
-    api.sendMessage.mockClear();
-    await bot.handleUpdate(
-      createTestUpdate({
-        message: {
-          text: "/retry",
-          chat: { id: ALLOWED_CHAT_ID, type: "supergroup" },
-          message_thread_id: 202,
-        },
-      }),
-    );
-
-    expect(api.sendMessage.mock.calls[0]?.[1]).toContain("Nothing to retry yet in this chat/topic.");
-  });
-
-  it("clears /retry memory after creating a new session or switching sessions", async () => {
-    const fresh = setupBot({
-      piSessionOverrides: {
-        listWorkspaces: vi.fn().mockResolvedValue(["/workspace/A"]),
-      },
-    });
-    await fresh.bot.handleUpdate(createTestUpdate({ message: { text: "retry me later" } }));
-    await fresh.bot.handleUpdate(createTestUpdate({ message: { text: "/new" } }));
-
-    fresh.api.sendMessage.mockClear();
-    await fresh.bot.handleUpdate(createTestUpdate({ message: { text: "/retry" } }));
-    expect(fresh.api.sendMessage.mock.calls[0]?.[1]).toContain("Nothing to retry yet");
-
-    const switched = setupBot();
-    await switched.bot.handleUpdate(createTestUpdate({ message: { text: "switch clears retry" } }));
-    await switched.bot.handleUpdate(createTestUpdate({ message: { text: "/sessions /saved/session.jsonl" } }));
-
-    switched.api.sendMessage.mockClear();
-    await switched.bot.handleUpdate(createTestUpdate({ message: { text: "/retry" } }));
-    expect(switched.api.sendMessage.mock.calls[0]?.[1]).toContain("Nothing to retry yet");
-  });
-
-  it("can retry failed prompts and prompts started from voice transcription", async () => {
-    const failing = setupBot();
-    const failingPrompt = failing.pi.service.prompt as ReturnType<typeof vi.fn>;
-    failingPrompt
-      .mockRejectedValueOnce(new Error("boom"))
-      .mockResolvedValueOnce(undefined);
-
-    await failing.bot.handleUpdate(createTestUpdate({ message: { text: "retry failed prompt" } }));
-    await failing.bot.handleUpdate(createTestUpdate({ message: { text: "/retry" } }));
-
-    expect(failing.pi.service.prompt).toHaveBeenNthCalledWith(1, "retry failed prompt");
-    expect(failing.pi.service.prompt).toHaveBeenNthCalledWith(2, "retry failed prompt");
-
-    const voice = setupBot();
-    const voicePrompt = voice.pi.service.prompt as ReturnType<typeof vi.fn>;
-    voicePrompt.mockImplementation(async () => {
-      voice.pi.emitTextDelta("Voice response");
-      voice.pi.emitAgentEnd();
-    });
-
-    await voice.bot.handleUpdate(createVoiceUpdate());
-    await voice.bot.handleUpdate(createTestUpdate({ message: { text: "/retry" } }));
-
-    expect(voice.pi.service.prompt).toHaveBeenNthCalledWith(1, "transcribed text");
-    expect(voice.pi.service.prompt).toHaveBeenNthCalledWith(2, "transcribed text");
-  });
-
-  it("rejects unauthorized message senders", async () => {
-    const { bot, api } = setupBot();
-
-    await bot.handleUpdate(
-      createTestUpdate({ message: { from: { id: 999, is_bot: false, first_name: "Eve" } } }),
-    );
-
-    expect(api.sendMessage).toHaveBeenCalledTimes(1);
-    expect(api.sendMessage.mock.calls[0]?.[1]).toBe("Unauthorized");
-  });
-
-  it("rejects unauthorized callback queries without sending a chat message", async () => {
-    const { bot, api } = setupBot();
-
-    await bot.handleUpdate(
-      createCallbackUpdate("switch_0", {
-        callback_query: { from: { id: 999, is_bot: false, first_name: "Eve" } },
-      }),
-    );
-
-    expect(api.answerCallbackQuery).toHaveBeenCalledWith("cb_1", { text: "Unauthorized" });
-    expect(api.sendMessage).not.toHaveBeenCalled();
-  });
-
-  it("rejects unauthorized tree commands", async () => {
-    const { bot, api } = setupBot();
-
-    await bot.handleUpdate(
-      createTestUpdate({
-        message: { text: "/tree", from: { id: 999, is_bot: false, first_name: "Eve" } },
-      }),
-    );
-
-    expect(api.sendMessage).toHaveBeenCalledTimes(1);
-    expect(api.sendMessage.mock.calls[0]?.[1]).toBe("Unauthorized");
-  });
-
-  it("handles /session", async () => {
-    const { bot, api } = setupBot();
-
-    await bot.handleUpdate(createTestUpdate({ message: { text: "/session" } }));
-
-    expect(api.sendMessage.mock.calls[0]?.[1]).toContain("Session ID");
-    expect(api.sendMessage.mock.calls[0]?.[1]).toContain("/tmp/test.jsonl");
-  });
-
-  it("shows fallback /session info for untouched contexts without creating a session", async () => {
-    const { bot, api, registry } = setupBot();
-
-    await bot.handleUpdate(
-      createTestUpdate({
-        message: {
-          text: "/session",
-          chat: { id: ALLOWED_CHAT_ID, type: "supergroup" },
-          message_thread_id: 909,
-        },
-      }),
-    );
-
-    expect(api.sendMessage.mock.calls[0]?.[1]).toContain("(no active session)");
-    expect((registry.registry.getOrCreate as ReturnType<typeof vi.fn>)).not.toHaveBeenCalledWith({
-      chatId: ALLOWED_CHAT_ID,
-      messageThreadId: 909,
-    });
-    expect(registry.getSession(ALLOWED_CHAT_ID, 909)).toBeUndefined();
-  });
-
-  it("handles /abort success and failure", async () => {
-    const ok = setupBot();
-    await ok.bot.handleUpdate(createTestUpdate({ message: { text: "/abort" } }));
-    expect(ok.pi.service.abort).toHaveBeenCalledTimes(1);
-    expect(ok.api.sendMessage.mock.calls[0]?.[1]).toContain("Aborted current operation");
-
-    const failure = setupBot({
-      piSessionOverrides: {
-        abort: vi.fn().mockRejectedValue(new Error("abort failed")),
-      },
-    });
-    await failure.bot.handleUpdate(createTestUpdate({ message: { text: "/abort" } }));
-    expect(failure.api.sendMessage.mock.calls[0]?.[1]).toContain("Failed:");
-    expect(failure.api.sendMessage.mock.calls[0]?.[1]).toContain("abort failed");
-  });
-
-  it("does not create a fresh session for /abort in an untouched context", async () => {
-    const { bot, api, registry } = setupBot();
-
-    await bot.handleUpdate(
-      createTestUpdate({
-        message: {
-          text: "/abort",
-          chat: { id: ALLOWED_CHAT_ID, type: "supergroup" },
-          message_thread_id: 910,
-        },
-      }),
-    );
-
-    expect(api.sendMessage.mock.calls[0]?.[1]).toContain("No active session to abort.");
-    expect((registry.registry.getOrCreate as ReturnType<typeof vi.fn>)).not.toHaveBeenCalledWith({
-      chatId: ALLOWED_CHAT_ID,
-      messageThreadId: 910,
-    });
-    expect(registry.getSession(ALLOWED_CHAT_ID, 910)).toBeUndefined();
-  });
-
-  it("shows a compact session picker with inline switch buttons", async () => {
-    const { bot, api } = setupBot();
-
-    await bot.handleUpdate(createTestUpdate({ message: { text: "/sessions" } }));
-
-    expect(api.sendMessage.mock.calls[0]?.[1]).toContain("Select a session to switch");
-    expect(api.sendMessage.mock.calls[0]?.[1]).toContain("(2 found)");
-    expect(api.sendMessage.mock.calls[0]?.[1]).not.toContain("📁 A");
-    expect(api.sendMessage.mock.calls[0]?.[1]).not.toContain("📁 B");
-    expect(getReplyMarkupButtons(api).slice(0, 2).map((button) => button.text)).toEqual([
-      "📁 A · Hello session",
-      "📁 B · World session",
-    ]);
-    expect(getReplyMarkupData(api)).toEqual(["switch_0", "switch_1"]);
-  });
-
-  it("paginates session pickers and keeps selections working across pages", async () => {
-    const sessions = generateMockSessions(8).map((session) => ({ ...session, cwd: "/workspace/A" }));
-    const { bot, pi, api } = setupBot({
-      piSessionOverrides: {
-        listAllSessions: vi.fn().mockResolvedValue(sessions),
-      },
-    });
-
-    await bot.handleUpdate(createTestUpdate({ message: { text: "/sessions" } }));
-
-    expect(getReplyMarkupData(api)).toEqual([
-      "switch_0",
-      "switch_1",
-      "switch_2",
-      "switch_3",
-      "switch_4",
-      "switch_5",
-      "noop_page",
-      "switch_page_1",
-    ]);
-    expect(getReplyMarkupButtons(api).at(-2)?.text).toBe("1/2");
-    expect(getReplyMarkupButtons(api).at(-1)?.text).toBe("Next ▶️");
-
-    await bot.handleUpdate(createCallbackUpdate("switch_page_1"));
-    expect(api.answerCallbackQuery).toHaveBeenCalledWith("cb_1", { text: undefined });
-    expect(getEditedReplyMarkupButtons(api).map((button) => button.callback_data)).toEqual([
-      "switch_6",
-      "switch_7",
-      "switch_page_0",
-      "noop_page",
-    ]);
-
-    await bot.handleUpdate(createCallbackUpdate("switch_7"));
-    expect(pi.service.switchSession).toHaveBeenCalledWith("/s7.jsonl", "/workspace/A");
-  });
-
-  it("routes session pickers and prompts per topic", async () => {
-    const topicOneKey = makeContextKey(ALLOWED_CHAT_ID, 101);
-    const topicTwoKey = makeContextKey(ALLOWED_CHAT_ID, 202);
-    const { bot, api, registry } = setupBot({
-      perContextSessionOverrides: {
-        [topicOneKey]: {
-          listAllSessions: vi.fn().mockResolvedValue([
-            {
-              id: "topic-1",
-              firstMessage: "Topic one",
-              path: "/topic-one.jsonl",
-              messageCount: 2,
-              cwd: "/workspace/topic-one",
-              modified: new Date("2025-01-02T00:00:00.000Z"),
-              name: undefined,
-            },
-          ]),
-        },
-        [topicTwoKey]: {
-          listAllSessions: vi.fn().mockResolvedValue([
-            {
-              id: "topic-2",
-              firstMessage: "Topic two",
-              path: "/topic-two.jsonl",
-              messageCount: 4,
-              cwd: "/workspace/topic-two",
-              modified: new Date("2025-01-03T00:00:00.000Z"),
-              name: undefined,
-            },
-          ]),
-        },
-      },
-    });
-
-    await bot.handleUpdate(
-      createTestUpdate({
-        message: {
-          text: "/sessions",
-          chat: { id: ALLOWED_CHAT_ID, type: "supergroup" },
-          message_thread_id: 101,
-        },
-      }),
-    );
-    await bot.handleUpdate(
-      createTestUpdate({
-        message: {
-          text: "/sessions",
-          chat: { id: ALLOWED_CHAT_ID, type: "supergroup" },
-          message_thread_id: 202,
-        },
-      }),
-    );
-
-    expect(api.sendMessage.mock.calls[0]?.[2]?.message_thread_id).toBe(101);
-    expect(api.sendMessage.mock.calls[1]?.[2]?.message_thread_id).toBe(202);
-
-    await bot.handleUpdate(
-      createCallbackUpdate("switch_0", {
-        callback_query: {
-          message: {
-            chat: { id: ALLOWED_CHAT_ID, type: "supergroup" },
-            message_thread_id: 101,
-          },
-        },
-      }),
-    );
-    await bot.handleUpdate(
-      createCallbackUpdate("switch_0", {
-        callback_query: {
-          message: {
-            chat: { id: ALLOWED_CHAT_ID, type: "supergroup" },
-            message_thread_id: 202,
-          },
-        },
-      }),
-    );
-
-    expect(registry.getSession(ALLOWED_CHAT_ID, 101)?.service.switchSession).toHaveBeenCalledWith(
-      "/topic-one.jsonl",
-      "/workspace/topic-one",
-    );
-    expect(registry.getSession(ALLOWED_CHAT_ID, 202)?.service.switchSession).toHaveBeenCalledWith(
-      "/topic-two.jsonl",
-      "/workspace/topic-two",
-    );
-
-    const topicOneSession = registry.getSession(ALLOWED_CHAT_ID, 101)!;
-    const promptMock = topicOneSession.service.prompt as ReturnType<typeof vi.fn>;
-    promptMock.mockImplementation(async () => {
-      topicOneSession.emitTextDelta("Topic response");
-      topicOneSession.emitAgentEnd();
-    });
-
-    await bot.handleUpdate(
-      createTestUpdate({
-        message: {
-          text: "topic prompt",
-          chat: { id: ALLOWED_CHAT_ID, type: "supergroup" },
-          message_thread_id: 101,
-        },
-      }),
-    );
-
-    expect(api.sendChatAction).toHaveBeenCalledWith(ALLOWED_CHAT_ID, "typing", 101);
-  });
-
-  it("allows independent topics to process prompts concurrently", async () => {
-    let resolveTopicOne!: () => void;
-    const { bot, api, registry } = setupBot({
-      perContextSessionOverrides: {
-        [makeContextKey(ALLOWED_CHAT_ID, 101)]: {
-          prompt: vi.fn().mockImplementation(
-            () =>
-              new Promise<void>((resolve) => {
-                resolveTopicOne = resolve;
-              }),
-          ),
-        },
-        [makeContextKey(ALLOWED_CHAT_ID, 202)]: {
-          prompt: vi.fn().mockResolvedValue(undefined),
-        },
-      },
-    });
-
-    const topicOnePending = bot.handleUpdate(
-      createTestUpdate({
-        message: {
-          text: "topic one prompt",
-          chat: { id: ALLOWED_CHAT_ID, type: "supergroup" },
-          message_thread_id: 101,
-        },
-      }),
-    );
-    await nextTick();
-
-    await bot.handleUpdate(
-      createTestUpdate({
-        message: {
-          text: "topic two prompt",
-          chat: { id: ALLOWED_CHAT_ID, type: "supergroup" },
-          message_thread_id: 202,
-        },
-      }),
-    );
-
-    expect(registry.getSession(ALLOWED_CHAT_ID, 202)?.service.prompt).toHaveBeenCalledWith("topic two prompt");
-    expect(api.sendMessage.mock.calls.some((call) => String(call[1]).includes("Still working on previous message..."))).toBe(false);
-
-    resolveTopicOne();
-    await topicOnePending;
-  });
-
-  it("switches directly via /sessions and /switch aliases and shows errors when switching fails", async () => {
-    const ok = setupBot();
-    await ok.bot.handleUpdate(createTestUpdate({ message: { text: "/sessions /saved/session.jsonl" } }));
-    expect(ok.pi.service.resolveSessionReference).toHaveBeenCalledWith("/saved/session.jsonl");
-    expect(ok.pi.service.switchSession).toHaveBeenCalledWith(
-      "/saved/session.jsonl",
-      "/workspace/A",
-    );
-    expect(ok.api.sendMessage.mock.calls[0]?.[1]).toContain("Switched session");
-
-    const alias = setupBot();
-    await alias.bot.handleUpdate(createTestUpdate({ message: { text: "/switch /saved/session.jsonl" } }));
-    expect(alias.pi.service.resolveSessionReference).toHaveBeenCalledWith("/saved/session.jsonl");
-    expect(alias.pi.service.switchSession).toHaveBeenCalledWith(
-      "/saved/session.jsonl",
-      "/workspace/A",
-    );
-    expect(alias.api.sendMessage.mock.calls[0]?.[1]).toContain("Switched session");
-
-    const cancelled = setupBot({
-      piSessionOverrides: {
-        switchSession: vi.fn().mockResolvedValue({
-          sessionId: "test-id",
-          sessionFile: "/tmp/test.jsonl",
-          workspace: "/workspace",
-          model: "anthropic/claude-sonnet-4-5",
-          cancelled: true,
-        }),
-      },
-    });
-    await cancelled.bot.handleUpdate(createTestUpdate({ message: { text: "/sessions /saved/session.jsonl" } }));
-    expect(cancelled.api.sendMessage.mock.calls[0]?.[1]).toContain("Session switch was cancelled.");
-
-    const byId = setupBot({
-      piSessionOverrides: {
-        resolveSessionReference: vi.fn().mockResolvedValue({
-          id: "s1",
-          path: "/saved/session.jsonl",
-          cwd: "/workspace/A",
-          matchType: "prefix",
-        }),
-      },
-    });
-    await byId.bot.handleUpdate(createTestUpdate({ message: { text: "/sessions s1" } }));
-    expect(byId.pi.service.resolveSessionReference).toHaveBeenCalledWith("s1");
-    expect(byId.pi.service.switchSession).toHaveBeenCalledWith(
-      "/saved/session.jsonl",
-      "/workspace/A",
-    );
-
-    const failure = setupBot({
-      piSessionOverrides: {
-        resolveSessionReference: vi.fn().mockRejectedValue(new Error("ambiguous session id")),
-      },
-    });
-    await failure.bot.handleUpdate(
-      createTestUpdate({ message: { text: "/sessions deadbeef" } }),
-    );
-    expect(failure.api.sendMessage.mock.calls[0]?.[1]).toContain("Failed:");
-    expect(failure.api.sendMessage.mock.calls[0]?.[1]).toContain("ambiguous session id");
-  });
-
-  it("handles switch callbacks, expired picks, and wait states", async () => {
-    const ready = setupBot();
-    await ready.bot.handleUpdate(createTestUpdate({ message: { text: "/sessions" } }));
-    await ready.bot.handleUpdate(createCallbackUpdate("switch_1"));
-
-    expect(ready.api.answerCallbackQuery).toHaveBeenCalledWith("cb_1", { text: "Switching..." });
-    expect(ready.pi.service.resolveSessionReference).toHaveBeenCalledWith("/s2.jsonl");
-    expect(ready.pi.service.switchSession).toHaveBeenCalledWith("/s2.jsonl", "/workspace/B");
-    expect(ready.api.editMessageText).toHaveBeenCalled();
-
-    const cancelled = setupBot({
-      piSessionOverrides: {
-        switchSession: vi.fn().mockResolvedValue({
-          sessionId: "test-id",
-          sessionFile: "/tmp/test.jsonl",
-          workspace: "/workspace",
-          model: "anthropic/claude-sonnet-4-5",
-          cancelled: true,
-        }),
-      },
-    });
-    await cancelled.bot.handleUpdate(createTestUpdate({ message: { text: "/sessions" } }));
-    await cancelled.bot.handleUpdate(createCallbackUpdate("switch_0"));
-    expect(cancelled.api.editMessageText.mock.calls.at(-1)?.[2]).toContain("Session switch was cancelled.");
-
-    const expired = setupBot();
-    await expired.bot.handleUpdate(createCallbackUpdate("switch_0"));
-    expect(expired.api.answerCallbackQuery).toHaveBeenCalledWith("cb_1", {
-      text: "Session expired, run /sessions again",
-    });
-
-    let resolvePrompt!: () => void;
-    const waiting = setupBot({
-      piSessionOverrides: {
-        prompt: vi.fn().mockImplementation(
-          () => new Promise<void>((resolve) => {
-            resolvePrompt = resolve;
-          }),
-        ),
-      },
-    });
-    await waiting.bot.handleUpdate(createTestUpdate({ message: { text: "/sessions" } }));
-    const firstPrompt = waiting.bot.handleUpdate(createTestUpdate({ message: { text: "hello" } }));
-    await nextTick();
-    await waiting.bot.handleUpdate(createCallbackUpdate("switch_0"));
-
-    expect(waiting.api.answerCallbackQuery).toHaveBeenCalledWith("cb_1", {
-      text: "Wait for the current prompt to finish",
-    });
-
-    resolvePrompt();
-    await firstPrompt;
-  });
-
-  it("surfaces startup diagnostics after successful direct session switches", async () => {
-    const { bot, api } = setupBot({
-      piSessionOverrides: {
-        switchSession: vi.fn().mockResolvedValue({
-          sessionId: "switched-id",
-          sessionFile: "/tmp/switched.jsonl",
-          workspace: "/workspace/B",
-          model: "anthropic/claude-sonnet-4-5",
-          diagnostics: [
-            { type: "error", message: "Extension issue (/ext/rebound.ts): startup failed" },
-          ],
-          cancelled: false,
-        }),
-      },
-    });
-
-    await bot.handleUpdate(createTestUpdate({ message: { text: "/sessions /saved/session.jsonl" } }));
-
-    const startupMessages = api.sendMessage.mock.calls
-      .map((call) => String(call[1]))
-      .filter((text) => text.includes("Session startup issues"));
-    expect(startupMessages).toHaveLength(1);
-    expect(startupMessages[0]).toContain("Extension issue (/ext/rebound.ts): startup failed");
-  });
-
-  it("surfaces startup diagnostics after successful switch callbacks", async () => {
-    const { bot, api } = setupBot({
-      piSessionOverrides: {
-        switchSession: vi.fn().mockResolvedValue({
-          sessionId: "switched-id",
-          sessionFile: "/tmp/switched.jsonl",
-          workspace: "/workspace/B",
-          model: "anthropic/claude-sonnet-4-5",
-          diagnostics: [
-            { type: "error", message: "Prompt issue (/prompts/deploy.md): invalid frontmatter" },
-          ],
-          cancelled: false,
-        }),
-      },
-    });
-
-    await bot.handleUpdate(createTestUpdate({ message: { text: "/sessions" } }));
-    await bot.handleUpdate(createCallbackUpdate("switch_1"));
-
-    expect(api.editMessageText).toHaveBeenCalled();
-    const startupMessages = api.sendMessage.mock.calls
-      .map((call) => String(call[1]))
-      .filter((text) => text.includes("Session startup issues"));
-    expect(startupMessages).toHaveLength(1);
-    expect(startupMessages[0]).toContain("Prompt issue (/prompts/deploy.md): invalid frontmatter");
-  });
-
-  it("shows a workspace picker for /new and creates directly when only one workspace exists", async () => {
-    const picker = setupBot();
-    await picker.bot.handleUpdate(createTestUpdate({ message: { text: "/new" } }));
-    expect(picker.api.sendMessage.mock.calls[0]?.[1]).toContain("Select workspace for new session");
-    expect(getReplyMarkupData(picker.api)).toEqual(["newws_0", "newws_1"]);
-
-    const single = setupBot({
-      piSessionOverrides: {
-        listWorkspaces: vi.fn().mockResolvedValue(["/workspace/A"]),
-      },
-    });
-    await single.bot.handleUpdate(createTestUpdate({ message: { text: "/new" } }));
-    expect(single.pi.service.newSession).toHaveBeenCalledWith();
-    expect(single.api.sendMessage.mock.calls[0]?.[1]).toContain("New session created.");
-  });
-
-  it("surfaces startup diagnostics after successful direct /new session creation", async () => {
-    const { bot, api } = setupBot({
-      piSessionOverrides: {
-        listWorkspaces: vi.fn().mockResolvedValue(["/workspace/A"]),
-        newSession: vi.fn().mockResolvedValue({
-          info: {
-            sessionId: "new-id",
-            sessionFile: "/tmp/new.jsonl",
-            workspace: "/workspace/A",
-            model: "anthropic/claude-sonnet-4-5",
-            diagnostics: [
-              { type: "error", message: "Extension issue (/ext/new.ts): startup failed" },
-            ],
-          },
-          created: true,
-        }),
-      },
-    });
-
-    await bot.handleUpdate(createTestUpdate({ message: { text: "/new" } }));
-
-    const startupMessages = api.sendMessage.mock.calls
-      .map((call) => String(call[1]))
-      .filter((text) => text.includes("Session startup issues"));
-    expect(startupMessages).toHaveLength(1);
-    expect(startupMessages[0]).toContain("Extension issue (/ext/new.ts): startup failed");
-  });
-
-  it("handles new workspace selection callbacks", async () => {
-    const { bot, pi, api } = setupBot();
-
-    await bot.handleUpdate(createTestUpdate({ message: { text: "/new" } }));
-    await bot.handleUpdate(createCallbackUpdate("newws_1"));
-
-    expect(api.answerCallbackQuery).toHaveBeenCalledWith("cb_1", { text: "Creating session..." });
-    expect(pi.service.newSession).toHaveBeenCalledWith("/workspace/B");
-    expect(api.editMessageText).toHaveBeenCalled();
-  });
-
-  it("surfaces startup diagnostics after successful workspace-picker session creation", async () => {
-    const { bot, api } = setupBot({
-      piSessionOverrides: {
-        newSession: vi.fn().mockResolvedValue({
-          info: {
-            sessionId: "new-id",
-            sessionFile: "/tmp/new.jsonl",
-            workspace: "/workspace/B",
-            model: "anthropic/claude-sonnet-4-5",
-            diagnostics: [
-              { type: "error", message: "Prompt issue (/prompts/new.md): invalid frontmatter" },
-            ],
-          },
-          created: true,
-        }),
-      },
-    });
-
-    await bot.handleUpdate(createTestUpdate({ message: { text: "/new" } }));
-    await bot.handleUpdate(createCallbackUpdate("newws_1"));
-
-    expect(api.editMessageText).toHaveBeenCalled();
-    const startupMessages = api.sendMessage.mock.calls
-      .map((call) => String(call[1]))
-      .filter((text) => text.includes("Session startup issues"));
-    expect(startupMessages).toHaveLength(1);
-    expect(startupMessages[0]).toContain("Prompt issue (/prompts/new.md): invalid frontmatter");
-  });
-
-  it("paginates workspace pickers and creates the selected workspace session", async () => {
-    const workspaces = generateMockWorkspaces(8);
-    const { bot, pi, api } = setupBot({
-      piSessionOverrides: {
-        listWorkspaces: vi.fn().mockResolvedValue(workspaces),
-      },
-    });
-
-    await bot.handleUpdate(createTestUpdate({ message: { text: "/new" } }));
-    expect(getReplyMarkupData(api)).toEqual([
-      "newws_0",
-      "newws_1",
-      "newws_2",
-      "newws_3",
-      "newws_4",
-      "newws_5",
-      "noop_page",
-      "newws_page_1",
-    ]);
-
-    await bot.handleUpdate(createCallbackUpdate("newws_page_1"));
-    expect(getEditedReplyMarkupButtons(api).map((button) => button.callback_data)).toEqual([
-      "newws_6",
-      "newws_7",
-      "newws_page_0",
-      "noop_page",
-    ]);
-
-    await bot.handleUpdate(createCallbackUpdate("newws_7"));
-    expect(pi.service.newSession).toHaveBeenCalledWith("/workspace/W7");
-  });
-
-  it("handles /handback and blocks it when unavailable or busy", async () => {
-    const ok = setupBot();
-    await ok.bot.handleUpdate(createTestUpdate({ message: { text: "/handback" } }));
-    expect(ok.pi.service.handback).toHaveBeenCalledTimes(1);
-    expect(ok.api.sendMessage.mock.calls[0]?.[1]).toContain("pi --session");
-    expect(ok.api.sendMessage.mock.calls[0]?.[1]).toContain("pi -c");
-    expect((ok.registry.registry.remove as ReturnType<typeof vi.fn>)).toHaveBeenCalledWith({
-      chatId: ALLOWED_CHAT_ID,
-    });
-
-    const noActive = setupBot({
-      piSessionOverrides: {
-        hasActiveSession: vi.fn().mockReturnValue(false),
-      },
-    });
-    await noActive.bot.handleUpdate(createTestUpdate({ message: { text: "/handback" } }));
-    expect(noActive.api.sendMessage.mock.calls[0]?.[1]).toContain("No active session to hand back.");
-
-    let resolvePrompt!: () => void;
-    const busy = setupBot({
-      piSessionOverrides: {
-        prompt: vi.fn().mockImplementation(
-          () => new Promise<void>((resolve) => {
-            resolvePrompt = resolve;
-          }),
-        ),
-      },
-    });
-    const pending = busy.bot.handleUpdate(createTestUpdate({ message: { text: "hello" } }));
-    await nextTick();
-    await busy.bot.handleUpdate(createTestUpdate({ message: { text: "/handback" } }));
-
-    expect(busy.api.sendMessage.mock.calls.at(-1)?.[1]).toContain(
-      "Cannot hand back while a prompt is running. Use /abort first.",
-    );
-
-    resolvePrompt();
-    await pending;
-  });
-
-  it("shows scoped models by default, can expand to all models, and handles model selection", async () => {
-    const scopedModels = [
-      {
-        provider: "github-copilot",
-        id: "codex",
-        name: "Codex",
-        current: true,
-        thinkingLevel: "high",
-      },
-    ];
-    const allModels = [
-      {
-        provider: "openai",
-        id: "codex",
-        name: "Codex",
-        current: false,
-      },
-      ...scopedModels,
-    ];
-    const listModels = vi.fn().mockImplementation((showAll?: boolean) =>
-      Promise.resolve(showAll ? allModels : scopedModels),
-    );
-
-    const { bot, pi, api } = setupBot({
-      piSessionOverrides: {
-        listModels,
-        setModel: vi.fn().mockResolvedValue("openai/codex"),
-      },
-    });
-
-    await bot.handleUpdate(createTestUpdate({ message: { text: "/model" } }));
-    expect(api.sendMessage.mock.calls[0]?.[1]).toContain("Select a model");
-    expect(api.sendMessage.mock.calls[0]?.[1]).toContain("Showing the current Pi model scope.");
-    expect(getReplyMarkupData(api)).toEqual(["model_0", "model_show_all"]);
-    expect(getReplyMarkupTexts(api)).toEqual([
-      "✅ github-copilot/codex · Codex : high",
-      "Show all models",
-    ]);
-    expect(listModels).toHaveBeenNthCalledWith(1, false);
-    expect(listModels).toHaveBeenNthCalledWith(2, true);
-
-    await bot.handleUpdate(createCallbackUpdate("model_show_all"));
-    expect(api.answerCallbackQuery).toHaveBeenCalledWith("cb_1", { text: "Loading all models..." });
-    expect(getEditedReplyMarkupData(api)).toEqual(["model_0", "model_1"]);
-    expect(getEditedReplyMarkupTexts(api)).toEqual([
-      "openai/codex · Codex",
-      "✅ github-copilot/codex · Codex : high",
-    ]);
-
-    await bot.handleUpdate(createCallbackUpdate("model_0"));
-    expect(api.answerCallbackQuery).toHaveBeenCalledWith("cb_1", { text: "Switching model..." });
-    expect(pi.service.setModel).toHaveBeenCalledWith("openai", "codex", undefined);
-    expect(api.editMessageText).toHaveBeenCalled();
-  });
-
-  it("applies the scoped thinking-level override when selecting a scoped model", async () => {
-    const { bot, pi } = setupBot({
-      piSessionOverrides: {
-        listModels: vi.fn().mockResolvedValue([
-          {
-            provider: "github-copilot",
-            id: "codex",
-            name: "Codex",
-            current: true,
-            thinkingLevel: "high",
-          },
-        ]),
-        setModel: vi.fn().mockResolvedValue("github-copilot/codex"),
-      },
-    });
-
-    await bot.handleUpdate(createTestUpdate({ message: { text: "/model" } }));
-    await bot.handleUpdate(createCallbackUpdate("model_0"));
-
-    expect(pi.service.setModel).toHaveBeenCalledWith("github-copilot", "codex", "high");
-  });
-
-  it("keeps the show-all button while paging through scoped models", async () => {
-    const scopedModels = Array.from({ length: 7 }, (_, index) => ({
-      provider: "github-copilot",
-      id: `codex-${index}`,
-      name: `Codex ${index}`,
-      current: index === 0,
-    }));
-    const allModels = [
-      ...Array.from({ length: 2 }, (_, index) => ({
-        provider: "openai",
-        id: `gpt-${index}`,
-        name: `GPT ${index}`,
-        current: false,
-      })),
-      ...scopedModels,
-    ];
-    const listModels = vi.fn().mockImplementation((showAll?: boolean) =>
-      Promise.resolve(showAll ? allModels : scopedModels),
-    );
-
-    const { bot, api } = setupBot({
-      piSessionOverrides: {
-        listModels,
-      },
-    });
-
-    await bot.handleUpdate(createTestUpdate({ message: { text: "/model" } }));
-    expect(getReplyMarkupData(api)).toEqual([
-      "model_0",
-      "model_1",
-      "model_2",
-      "model_3",
-      "model_4",
-      "model_5",
-      "noop_page",
-      "model_page_1",
-      "model_show_all",
-    ]);
-
-    await bot.handleUpdate(createCallbackUpdate("model_page_1"));
-    expect(getEditedReplyMarkupButtons(api).map((button) => button.callback_data)).toEqual([
-      "model_6",
-      "model_page_0",
-      "noop_page",
-      "model_show_all",
-    ]);
-  });
-
-  it("paginates model pickers across all available models", async () => {
-    const models = generateMockModels(21);
-    const { bot, pi, api } = setupBot({
-      piSessionOverrides: {
-        listModels: vi.fn().mockImplementation((showAll?: boolean) =>
-          Promise.resolve(showAll ? models : models),
-        ),
-      },
-    });
-
-    await bot.handleUpdate(createTestUpdate({ message: { text: "/model" } }));
-    expect(getReplyMarkupData(api)).toEqual([
-      "model_0",
-      "model_1",
-      "model_2",
-      "model_3",
-      "model_4",
-      "model_5",
-      "noop_page",
-      "model_page_1",
-    ]);
-
-    await bot.handleUpdate(createCallbackUpdate("model_page_3"));
-    expect(getEditedReplyMarkupButtons(api).map((button) => button.callback_data)).toEqual([
-      "model_18",
-      "model_19",
-      "model_20",
-      "model_page_2",
-      "noop_page",
-    ]);
-
-    await bot.handleUpdate(createCallbackUpdate("model_20"));
-    expect(pi.service.setModel).toHaveBeenCalledWith("provider20", "model-20", undefined);
-  });
-
-  it("handles /tree command variants and missing sessions", async () => {
-    const empty = setupBot({
-      piSessionOverrides: {
-        getTree: vi.fn().mockReturnValue([]),
-      },
-    });
-    await empty.bot.handleUpdate(createTestUpdate({ message: { text: "/tree" } }));
-    expect(empty.api.sendMessage.mock.calls[0]?.[1]).toContain("Session tree is empty.");
-
-    const branched = setupBot();
-    await branched.bot.handleUpdate(createTestUpdate({ message: { text: "/tree" } }));
-    expect(branched.api.sendMessage.mock.calls[0]?.[1]).toContain("Start");
-    expect(getReplyMarkupData(branched.api)).toContain("tree_nav_branch111");
-    expect(getReplyMarkupData(branched.api)).toContain("tree_nav_leaf5678");
-
-    const userMode = setupBot();
-    await userMode.bot.handleUpdate(createTestUpdate({ message: { text: "/tree user" } }));
-    expect(userMode.api.sendMessage.mock.calls[0]?.[1]).toContain("Filter: user messages only.");
-
-    const allMode = setupBot();
-    await allMode.bot.handleUpdate(createTestUpdate({ message: { text: "/tree all" } }));
-    expect(allMode.api.sendMessage.mock.calls[0]?.[1]).toContain("Filter: all entries with navigation buttons.");
-
-    const noActive = setupBot({
-      piSessionOverrides: {
-        hasActiveSession: vi.fn().mockReturnValue(false),
-      },
-    });
-    await noActive.bot.handleUpdate(createTestUpdate({ message: { text: "/tree" } }));
-    expect(noActive.api.sendMessage.mock.calls[0]?.[1]).toContain("No active session");
-  });
-
-  it("paginates tree navigation buttons while keeping filter buttons visible", async () => {
-    const tree = generatePagedTree(8);
-    const { bot, api } = setupBot({
-      piSessionOverrides: {
-        getTree: vi.fn().mockReturnValue(tree),
-        getLeafId: vi.fn().mockReturnValue("node0001"),
-      },
-    });
-
-    await bot.handleUpdate(createTestUpdate({ message: { text: "/tree" } }));
-    expect(api.sendMessage.mock.calls[0]?.[1]).toContain("Page 1/2");
-    expect(getReplyMarkupData(api)).toEqual([
-      "tree_nav_root0000",
-      "tree_nav_node0002",
-      "tree_nav_node0003",
-      "tree_nav_node0004",
-      "tree_nav_node0005",
-      "tree_nav_node0006",
-      "noop_page",
-      "tree_page_1",
-      "tree_mode_all",
-      "tree_mode_user",
-    ]);
-
-    await bot.handleUpdate(createCallbackUpdate("tree_page_1"));
-    expect(api.editMessageText.mock.calls[0]?.[2]).toContain("Page 2/2");
-    expect(getEditedReplyMarkupButtons(api).map((button) => button.callback_data)).toEqual([
-      "tree_nav_node0007",
-      "tree_page_0",
-      "noop_page",
-      "tree_mode_all",
-      "tree_mode_user",
-    ]);
-  });
-
-  it("keeps the selected tree mode when paging", async () => {
-    const tree = generatePagedTree(8);
-    const { bot, api } = setupBot({
-      piSessionOverrides: {
-        getTree: vi.fn().mockReturnValue(tree),
-        getLeafId: vi.fn().mockReturnValue("node0001"),
-      },
-    });
-
-    await bot.handleUpdate(createTestUpdate({ message: { text: "/tree all" } }));
-    expect(api.sendMessage.mock.calls[0]?.[1]).toContain("Filter: all entries with navigation buttons.");
-    expect(getReplyMarkupData(api)).toEqual([
-      "tree_nav_root0000",
-      "tree_nav_node0001",
-      "tree_nav_node0002",
-      "tree_nav_node0003",
-      "tree_nav_node0004",
-      "tree_nav_node0005",
-      "noop_page",
-      "tree_page_1",
-      "tree_mode_default",
-      "tree_mode_user",
-    ]);
-
-    await bot.handleUpdate(createCallbackUpdate("tree_page_1"));
-    expect(api.editMessageText.mock.calls[0]?.[2]).toContain("Filter: all entries with navigation buttons.");
-    expect(getEditedReplyMarkupButtons(api).map((button) => button.callback_data)).toEqual([
-      "tree_nav_node0006",
-      "tree_nav_node0007",
-      "tree_page_0",
-      "noop_page",
-      "tree_mode_default",
-      "tree_mode_user",
-    ]);
-  });
-
-  it("handles /branch command success and validation", async () => {
-    const usage = setupBot();
-    await usage.bot.handleUpdate(createTestUpdate({ message: { text: "/branch" } }));
-    expect(usage.api.sendMessage.mock.calls[0]?.[1]).toContain("Usage: /branch &lt;entry-id&gt;");
-
-    const missing = setupBot();
-    await missing.bot.handleUpdate(createTestUpdate({ message: { text: "/branch missing" } }));
-    expect(missing.api.sendMessage.mock.calls[0]?.[1]).toContain("Entry not found: missing");
-
-    const sameLeaf = setupBot();
-    await sameLeaf.bot.handleUpdate(createTestUpdate({ message: { text: "/branch leaf1234" } }));
-    expect(sameLeaf.api.sendMessage.mock.calls[0]?.[1]).toContain("already at this point");
-
-    const ok = setupBot();
-    await ok.bot.handleUpdate(createTestUpdate({ message: { text: "/branch branch111" } }));
-    expect(ok.api.sendMessage.mock.calls[0]?.[1]).toContain("Navigate to this point?");
-    expect(getReplyMarkupData(ok.api)).toEqual(["tree_go_branch111", "tree_sum_branch111", "tree_cancel"]);
-  });
-
-  it("handles /label command flows", async () => {
-    const show = setupBot();
-    await show.bot.handleUpdate(createTestUpdate({ message: { text: "/label" } }));
-    expect(show.api.sendMessage.mock.calls[0]?.[1]).toContain("saved");
-
-    const current = setupBot();
-    await current.bot.handleUpdate(createTestUpdate({ message: { text: "/label checkpoint" } }));
-    expect(current.pi.service.setLabel).toHaveBeenCalledWith("leaf1234", "checkpoint");
-    expect(current.api.sendMessage.mock.calls[0]?.[1]).toContain("current leaf");
-
-    const specific = setupBot();
-    await specific.bot.handleUpdate(createTestUpdate({ message: { text: "/label branch111 origin" } }));
-    expect(specific.pi.service.setLabel).toHaveBeenCalledWith("branch111", "origin");
-    expect(specific.api.sendMessage.mock.calls[0]?.[1]).toContain("set on");
-
-    const clear = setupBot();
-    await clear.bot.handleUpdate(createTestUpdate({ message: { text: "/label clear branch111" } }));
-    expect(clear.pi.service.setLabel).toHaveBeenCalledWith("branch111", "");
-    expect(clear.api.sendMessage.mock.calls[0]?.[1]).toContain("Label cleared");
-
-    const unknown = setupBot({
-      piSessionOverrides: {
-        getEntry: vi.fn().mockReturnValue(undefined),
-      },
-    });
-    await unknown.bot.handleUpdate(createTestUpdate({ message: { text: "/label clear nope" } }));
-    expect(unknown.api.sendMessage.mock.calls[0]?.[1]).toContain("Entry not found: nope");
-  });
-
-  it("handles tree callback queries", async () => {
-    const nav = setupBot();
-    await nav.bot.handleUpdate(createCallbackUpdate("tree_nav_branch111"));
-    expect(nav.api.answerCallbackQuery).toHaveBeenCalledWith("cb_1", { text: "Loading..." });
-    expect(nav.api.editMessageText.mock.calls[0]?.[2]).toContain("Navigate to this point?");
-
-    // tree_go_ requires prior tree_nav_ confirmation (pendingTreeNavs)
-    const go = setupBot();
-    // First trigger nav to set pending state
-    await go.bot.handleUpdate(createCallbackUpdate("tree_nav_branch111"));
-    go.api.answerCallbackQuery.mockClear();
-    go.api.editMessageText.mockClear();
-    // Now confirm navigate
-    await go.bot.handleUpdate(createCallbackUpdate("tree_go_branch111"));
-    expect(go.api.answerCallbackQuery).toHaveBeenCalledWith("cb_1", { text: "Navigating..." });
-    expect(go.pi.service.navigateTree).toHaveBeenCalledWith("branch111");
-    expect(go.api.editMessageText.mock.calls[0]?.[2]).toContain("✅ Navigated to");
-
-    // tree_go_ without prior nav shows "expired"
-    const goExpired = setupBot();
-    await goExpired.bot.handleUpdate(createCallbackUpdate("tree_go_branch111"));
-    expect(goExpired.api.answerCallbackQuery).toHaveBeenCalledWith("cb_1", {
-      text: "Confirmation expired. Use /branch again.",
-    });
-
-    // tree_go_ with navigation error
-    const goFail = setupBot({
-      piSessionOverrides: {
-        navigateTree: vi.fn().mockRejectedValue(new Error("nav failed")),
-      },
-    });
-    await goFail.bot.handleUpdate(createCallbackUpdate("tree_nav_branch111"));
-    goFail.api.editMessageText.mockClear();
-    await goFail.bot.handleUpdate(createCallbackUpdate("tree_go_branch111"));
-    expect(goFail.api.editMessageText.mock.calls[0]?.[2]).toContain("nav failed");
-
-    // tree_sum_ requires prior tree_nav_ confirmation
-    const sum = setupBot();
-    await sum.bot.handleUpdate(createCallbackUpdate("tree_nav_branch111"));
-    sum.api.answerCallbackQuery.mockClear();
-    sum.api.editMessageText.mockClear();
-    await sum.bot.handleUpdate(createCallbackUpdate("tree_sum_branch111"));
-    expect(sum.api.answerCallbackQuery).toHaveBeenCalledWith("cb_1", {
-      text: "Navigating with summary...",
-    });
-    expect(sum.pi.service.navigateTree).toHaveBeenCalledWith("branch111", { summarize: true });
-    expect(sum.api.editMessageText.mock.calls[0]?.[2]).toContain("Branch summary saved");
-
-    // tree_sum_ without prior nav shows "expired"
-    const sumExpired = setupBot();
-    await sumExpired.bot.handleUpdate(createCallbackUpdate("tree_sum_branch111"));
-    expect(sumExpired.api.answerCallbackQuery).toHaveBeenCalledWith("cb_1", {
-      text: "Confirmation expired. Use /branch again.",
-    });
-
-    // tree_go_ with cancelled navigation
-    const goCancelled = setupBot({
-      piSessionOverrides: {
-        navigateTree: vi.fn().mockResolvedValue({ cancelled: true }),
-      },
-    });
-    await goCancelled.bot.handleUpdate(createCallbackUpdate("tree_nav_branch111"));
-    goCancelled.api.editMessageText.mockClear();
-    await goCancelled.bot.handleUpdate(createCallbackUpdate("tree_go_branch111"));
-    expect(goCancelled.api.editMessageText.mock.calls[0]?.[2]).toContain("Navigation cancelled.");
-
-    const cancel = setupBot();
-    await cancel.bot.handleUpdate(createCallbackUpdate("tree_cancel"));
-    expect(cancel.api.answerCallbackQuery).toHaveBeenCalledWith("cb_1", { text: "Cancelled" });
-    expect(cancel.api.editMessageText.mock.calls[0]?.[2]).toContain("Navigation cancelled.");
-
-    const mode = setupBot();
-    await mode.bot.handleUpdate(createTestUpdate({ message: { text: "/tree" } }));
-    mode.api.editMessageText.mockClear();
-    await mode.bot.handleUpdate(createCallbackUpdate("tree_mode_user"));
-    expect(mode.api.editMessageText.mock.calls[0]?.[2]).toContain("Filter: user messages only.");
-
-    const modeExpired = setupBot();
-    await modeExpired.bot.handleUpdate(createCallbackUpdate("tree_mode_user"));
-    expect(modeExpired.api.answerCallbackQuery).toHaveBeenCalledWith("cb_1", {
-      text: "Expired, run /tree again",
-    });
-  });
-
-  it("processes plain text messages and subscribes to Pi events", async () => {
-    const { bot, pi, api } = setupBot({
-      configOverrides: { toolVerbosity: "all" },
-    });
-
-    const promptMock = pi.service.prompt as ReturnType<typeof vi.fn>;
-    promptMock.mockImplementation(async () => {
-      pi.emitTextDelta("Hello ");
-      pi.emitTextDelta("world");
-      pi.emitToolStart("bash", "tool-1");
-      pi.emitToolUpdate("tool-1", "stdout\nline");
-      pi.emitToolEnd("tool-1", false);
-      pi.emitAgentEnd();
-    });
-
-    await bot.handleUpdate(createTestUpdate({ message: { text: "continue please" } }));
-
-    expect(pi.service.subscribe).toHaveBeenCalledTimes(1);
-    expect(pi.service.prompt).toHaveBeenCalledWith("continue please");
-    expect(api.sendChatAction).toHaveBeenCalled();
-    expect(api.sendMessage.mock.calls.some((call) => String(call[1]).includes("Hello"))).toBe(true);
-    expect(api.sendMessage.mock.calls.some((call) => String(call[1]).includes("Running:"))).toBe(true);
-    expect(
-      api.editMessageText.mock.calls.some((call) => String(call[2]).includes("Hello world")),
-    ).toBe(true);
-  });
-
-  it("bridges discovered Pi slash commands into the prompt flow", async () => {
-    const { bot, pi } = setupBot({
-      piSessionOverrides: {
-        listSlashCommands: vi.fn().mockResolvedValue([
-          { name: "compact", description: "Compact context", source: "extension", path: "/ext/compact.ts" },
-        ]),
-      },
-    });
-
-    await bot.handleUpdate(createTestUpdate({ message: { text: "/compact focus recent work" } }));
-
-    expect(pi.service.listSlashCommands).toHaveBeenCalledTimes(1);
-    expect(pi.service.prompt).toHaveBeenCalledWith("/compact focus recent work");
-  });
-
-  it("bridges /cron status through TelePi and surfaces the extension notification", async () => {
-    const { bot, pi, api } = setupBot({
-      piSessionOverrides: {
-        listSlashCommands: vi.fn().mockResolvedValue([
-          makeTelepiBareNativeMenuSlashCommand("cron", [
-            { id: "list", label: "📋 /cron list", commandText: "/cron list" },
-            { id: "status", label: "📊 /cron status", commandText: "/cron status" },
-            { id: "add", label: "➕ /cron add", commandText: "/cron add" },
-            { id: "manage", label: "🛠️ /cron manage", commandText: "/cron manage" },
-          ], {
-            description: "Manage PiCron schedules",
-          }),
-        ]),
-      },
-    });
-
-    const promptMock = pi.service.prompt as ReturnType<typeof vi.fn>;
-    promptMock.mockImplementation(async () => {
-      pi.getExtensionBindings()?.uiContext?.notify("Daemon: running\nSchedules: 1\nEnabled: 1\nNext due: 2026-01-01T09:00:00.000Z", "info");
-      pi.emitAgentEnd();
-    });
-
-    await bot.handleUpdate(createTestUpdate({ message: { text: "/cron status" } }));
-    await nextTick();
-
-    expect(pi.service.prompt).toHaveBeenCalledWith("/cron status");
-    expect(api.sendMessage.mock.calls.some((call) => String(call[1]).includes("Daemon: running"))).toBe(true);
-    expect(api.sendMessage.mock.calls.some((call) => String(call[1]).includes("Schedules: 1"))).toBe(true);
-  });
-
-  it("opens a native TelePi menu for bare slash commands declared via metadata", async () => {
-    const { bot, pi, api } = setupBot({
-      piSessionOverrides: {
-        listSlashCommands: vi.fn().mockResolvedValue([
-          makeTelepiBareNativeMenuSlashCommand("deploy", [
-            { id: "preview", label: "🧪 /deploy preview", commandText: "/deploy preview" },
-            { id: "status", label: "📊 /deploy status", commandText: "/deploy status" },
-            { id: "prod", label: "🚀 /deploy prod", commandText: "/deploy prod" },
-          ], {
-            description: "Deployment shortcuts",
-          }),
-        ]),
-      },
-    });
-
-    await bot.handleUpdate(createTestUpdate({ message: { text: "/deploy" } }));
-
-    expect(pi.service.prompt).not.toHaveBeenCalled();
-    expect(api.sendMessage).toHaveBeenCalledTimes(1);
-    expect(String(api.sendMessage.mock.calls[0]?.[1])).toContain("/deploy");
-    expect(getReplyMarkupTexts(api)).toEqual([
-      "🧪 /deploy preview",
-      "📊 /deploy status",
-      "🚀 /deploy prod",
-    ]);
-    expect(getReplyMarkupData(api).every((callbackData) => /^cmdm_[a-z0-9]+$/.test(callbackData))).toBe(true);
-    expect(new Set(getReplyMarkupData(api)).size).toBe(3);
-    expect(getReplyMarkupData(api).every((callbackData) => callbackData.length < 64)).toBe(true);
-  });
-
-  it("drives bare /cron native menus from real PiCron extension metadata across repos", async () => {
-    const slashCommands = await loadPiCronSlashCommands();
-    const cronCommand = slashCommands.find((command) => command.name === "cron");
-
-    expect(cronCommand).toMatchObject({
-      name: "cron",
-      description: "Manage PiCron schedules",
-      integrations: {
-        telepi: {
-          bare: {
-            kind: "native-menu",
-            entries: [
-              { id: "picron.cron.list", label: "List schedules", commandText: "/cron list" },
-              { id: "picron.cron.status", label: "Show status", commandText: "/cron status" },
-              { id: "picron.cron.add", label: "Add schedule", commandText: "/cron add" },
-              { id: "picron.cron.manage", label: "Manage schedules", commandText: "/cron manage" },
-            ],
-          },
-        },
-      },
-    });
-
-    const { bot, pi, api } = setupBot({
-      piSessionOverrides: {
-        listSlashCommands: vi.fn().mockResolvedValue(slashCommands),
-      },
-    });
-
-    await bot.handleUpdate(createTestUpdate({ message: { text: "/cron" } }));
-
-    expect(pi.service.prompt).not.toHaveBeenCalled();
-    expect(api.sendMessage).toHaveBeenCalledTimes(1);
-    expect(String(api.sendMessage.mock.calls[0]?.[1])).toContain("/cron");
-
-    const labels = getReplyMarkupTexts(api);
-    expect(labels).toEqual([
-      "List schedules",
-      "Show status",
-      "Add schedule",
-      "Manage schedules",
-    ]);
-
-    const showStatusCallbackData = getReplyMarkupData(api)[labels.indexOf("Show status")];
-    expect(showStatusCallbackData).toMatch(/^cmdm_[a-z0-9]+$/);
-
-    await bot.handleUpdate(createCallbackUpdate(showStatusCallbackData!));
-
-    expect(api.answerCallbackQuery).toHaveBeenCalledWith("cb_1", { text: "Running /cron status" });
-    expect(pi.service.prompt).toHaveBeenCalledWith("/cron status");
-  });
-
-  it("dispatches generic command-menu callbacks through the normal prompt flow", async () => {
-    const { bot, pi, api } = setupBot({
-      piSessionOverrides: {
-        listSlashCommands: vi.fn().mockResolvedValue([
-          makeTelepiBareNativeMenuSlashCommand("deploy", [
-            { id: "preview", label: "🧪 /deploy preview", commandText: "/deploy preview" },
-            { id: "status", label: "📊 /deploy status", commandText: "/deploy status" },
-          ]),
-        ]),
-      },
-    });
-    const promptMock = pi.service.prompt as ReturnType<typeof vi.fn>;
-
-    await bot.handleUpdate(createTestUpdate({ message: { text: "/deploy" } }));
-    const callbackData = getReplyMarkupData(api)[1]!;
-
-    promptMock.mockImplementation(async (promptText: string) => {
-      expect(api.answerCallbackQuery).toHaveBeenCalledWith("cb_1", { text: "Running /deploy status" });
-      expect(promptText).toBe("/deploy status");
-      pi.emitAgentEnd();
-    });
-
-    await bot.handleUpdate(createCallbackUpdate(callbackData));
-
-    expect(api.answerCallbackQuery).toHaveBeenCalledWith("cb_1", { text: "Running /deploy status" });
-    expect(pi.service.prompt).toHaveBeenCalledWith("/deploy status");
-  });
-
-  it("detaches command-menu prompt callbacks so extension dialog callbacks stay responsive", async () => {
-    let resolvePrompt!: () => void;
-    const { bot, pi, api } = setupBot({
-      piSessionOverrides: {
-        listSlashCommands: vi.fn().mockResolvedValue([
-          makeTelepiBareNativeMenuSlashCommand("deploy", [
-            { id: "manage", label: "🛠️ /deploy manage", commandText: "/deploy manage" },
-            { id: "status", label: "📊 /deploy status", commandText: "/deploy status" },
-          ]),
-        ]),
-      },
-    });
-    const promptMock = pi.service.prompt as ReturnType<typeof vi.fn>;
-
-    promptMock.mockImplementation(async (promptText: string) => {
-      expect(promptText).toBe("/deploy manage");
-      const choice = await pi.getExtensionBindings()?.uiContext?.select("Pick one", ["Alpha", "Beta"]);
-      pi.emitTextDelta(`picked ${choice}`);
-      await new Promise<void>((resolve) => {
-        resolvePrompt = resolve;
-      });
-      pi.emitAgentEnd();
-    });
-
-    await bot.handleUpdate(createTestUpdate({ message: { text: "/deploy" } }));
-    const callbackData = getReplyMarkupData(api)[0]!;
-
-    let callbackHandled = false;
-    const pendingCallback = bot.handleUpdate(createCallbackUpdate(callbackData));
-    void pendingCallback.then(() => {
-      callbackHandled = true;
-    });
-
-    await nextTick();
-
-    expect(api.answerCallbackQuery).toHaveBeenCalledWith("cb_1", { text: "Running /deploy manage" });
-    expect(pi.service.prompt).toHaveBeenCalledWith("/deploy manage");
-    expect(callbackHandled).toBe(true);
-
-    const selectCallback = api.sendMessage.mock.calls
-      .flatMap((call) => call[2]?.reply_markup?.inline_keyboard?.flat().map((button: any) => button.callback_data) ?? [])
-      .find((data) => /^ui_sel_[a-z0-9]+_1$/.test(data ?? ""));
-    expect(selectCallback).toBeTruthy();
-
-    api.answerCallbackQuery.mockClear();
-    await bot.handleUpdate(
-      createCallbackUpdate(selectCallback!, {
-        callback_query: {
-          message: {
-            message_id: 2,
-          },
-        },
-      }),
-    );
-
-    expect(api.answerCallbackQuery).toHaveBeenCalledWith("cb_1", { text: "Selected Beta" });
-    expect(api.editMessageText.mock.calls.some((call) => String(call[2]).includes("Selected: Beta"))).toBe(true);
-
-    resolvePrompt();
-    await nextTick();
-
-    expect(api.sendMessage.mock.calls.some((call) => String(call[1]).includes("picked Beta"))).toBe(true);
-  });
-
-  it("detaches text prompt handling from the Telegram update lifetime", async () => {
-    let resolvePrompt!: () => void;
-    const { bot, pi } = setupBot({
-      piSessionOverrides: {
-        prompt: vi.fn().mockImplementation(
-          () =>
-            new Promise<void>((resolve) => {
-              resolvePrompt = resolve;
-            }),
-        ),
-      },
-    });
-
-    let updateHandled = false;
-    const pendingUpdate = bot.handleUpdate(createTestUpdate({ message: { text: "hello" } }));
-    void pendingUpdate.then(() => {
-      updateHandled = true;
-    });
-
-    await nextTick();
-
-    expect(updateHandled).toBe(true);
-    expect(pi.service.prompt).toHaveBeenCalledWith("hello");
-
-    resolvePrompt();
-    await nextTick();
-  });
-
-  it("fails fast for generic command-menu callbacks while a prompt is already in flight", async () => {
-    let resolvePrompt!: () => void;
-    const { bot, pi, api } = setupBot({
-      piSessionOverrides: {
-        listSlashCommands: vi.fn().mockResolvedValue([
-          makeTelepiBareNativeMenuSlashCommand("deploy", [
-            { id: "preview", label: "🧪 /deploy preview", commandText: "/deploy preview" },
-            { id: "status", label: "📊 /deploy status", commandText: "/deploy status" },
-          ]),
-        ]),
-        prompt: vi.fn().mockImplementation(
-          () =>
-            new Promise<void>((resolve) => {
-              resolvePrompt = resolve;
-            }),
-        ),
-      },
-    });
-    const promptMock = pi.service.prompt as ReturnType<typeof vi.fn>;
-
-    await bot.handleUpdate(createTestUpdate({ message: { text: "/deploy" } }));
-    const callbackData = getReplyMarkupData(api)[0]!;
-
-    const pending = bot.handleUpdate(createTestUpdate({ message: { text: "hello" } }));
-    await nextTick();
-
-    expect(promptMock).toHaveBeenCalledTimes(1);
-
-    api.answerCallbackQuery.mockClear();
-    const sendMessageCalls = api.sendMessage.mock.calls.length;
-
-    await bot.handleUpdate(createCallbackUpdate(callbackData));
-
-    expect(api.answerCallbackQuery).toHaveBeenCalledWith("cb_1", {
-      text: "Wait for the current prompt to finish",
-    });
-    expect(api.answerCallbackQuery).not.toHaveBeenCalledWith("cb_1", { text: "Running /deploy preview" });
-    expect(api.sendMessage).toHaveBeenCalledTimes(sendMessageCalls);
-    expect(promptMock).toHaveBeenCalledTimes(1);
-
-    resolvePrompt();
-    await pending;
-  });
-
-  it("falls back to forwarding bare slash commands when native menu metadata is missing or invalid", async () => {
-    for (const slashCommands of [
-      [makeSlashCommand("deploy", { description: "Deploy app" })],
-      [
-        makeTelepiBareNativeMenuSlashCommand("deploy", [
-          { id: "preview", label: "", commandText: "/deploy preview" },
-        ]),
-      ],
-    ]) {
-      const { bot, pi } = setupBot({
-        piSessionOverrides: {
-          listSlashCommands: vi.fn().mockResolvedValue(slashCommands),
-        },
-      });
-
-      await bot.handleUpdate(createTestUpdate({ message: { text: "/deploy" } }));
-
-      expect(pi.service.prompt).toHaveBeenCalledWith("/deploy");
-    }
-  });
-
-  it("passes schedule-like plain text through unchanged instead of applying cron-specific rewrites", async () => {
-    const { bot, pi } = setupBot({
-      piSessionOverrides: {
-        listSlashCommands: vi.fn().mockResolvedValue([
-          makeTelepiBareNativeMenuSlashCommand("cron", [
-            { id: "picron.cron.list", label: "List schedules", commandText: "/cron list" },
-            { id: "picron.cron.status", label: "Show status", commandText: "/cron status" },
-          ], {
-            description: "Manage PiCron schedules",
-          }),
-        ]),
-      },
-    });
-
-    await bot.handleUpdate(createTestUpdate({ message: { text: "list schedules" } }));
-
-    expect(pi.service.prompt).toHaveBeenCalledWith("list schedules");
-  });
-
-  it("drives a /cron add style multi-step extension dialog flow through TelePi replies", async () => {
-    const { bot, pi, api } = setupBot({
-      piSessionOverrides: {
-        listSlashCommands: vi.fn().mockResolvedValue([
-          { name: "cron", description: "Manage PiCron schedules", source: "extension", path: "/ext/picron.ts" },
-        ]),
-      },
-    });
-
-    const promptMock = pi.service.prompt as ReturnType<typeof vi.fn>;
-    promptMock.mockImplementation(async () => {
-      const ui = pi.getExtensionBindings()?.uiContext;
-      const name = await ui?.input("Schedule name", "Daily review");
-      const cron = await ui?.input("Cron expression", "0 9 * * *");
-      const timezone = await ui?.input("Timezone", "UTC");
-      const prompt = await ui?.input("Prompt", "Review the repo");
-      const cwd = await ui?.input("Target cwd (optional)", "/workspace/current");
-      const sessionFile = await ui?.input("Target session file (optional)", "session.jsonl");
-      ui?.notify(`Created schedule ${name} (${cron}, ${timezone}, ${prompt}, ${cwd}, ${sessionFile}).`, "info");
-      pi.emitAgentEnd();
-    });
-
-    const pending = bot.handleUpdate(createTestUpdate({ message: { text: "/cron add" } }));
-    await nextTick();
-
-    expect(api.sendMessage.mock.calls.some((call) => String(call[1]).includes("Schedule name"))).toBe(true);
-
-    await bot.handleUpdate(createTestUpdate({ message: { text: "Daily review" } }));
-    await nextTick();
-    expect(api.sendMessage.mock.calls.some((call) => String(call[1]).includes("Cron expression"))).toBe(true);
-
-    await bot.handleUpdate(createTestUpdate({ message: { text: "0 9 * * *" } }));
-    await nextTick();
-    expect(api.sendMessage.mock.calls.some((call) => String(call[1]).includes("Timezone"))).toBe(true);
-
-    await bot.handleUpdate(createTestUpdate({ message: { text: "UTC" } }));
-    await nextTick();
-    expect(api.sendMessage.mock.calls.some((call) => String(call[1]).includes("Prompt"))).toBe(true);
-
-    await bot.handleUpdate(createTestUpdate({ message: { text: "Review the repo" } }));
-    await nextTick();
-    expect(api.sendMessage.mock.calls.some((call) => String(call[1]).includes("Target cwd (optional)"))).toBe(true);
-
-    await bot.handleUpdate(createTestUpdate({ message: { text: "/workspace/current" } }));
-    await nextTick();
-    expect(api.sendMessage.mock.calls.some((call) => String(call[1]).includes("Target session file (optional)"))).toBe(true);
-
-    await bot.handleUpdate(createTestUpdate({ message: { text: "session.jsonl" } }));
-    await pending;
-    await nextTick();
-
-    expect(pi.service.prompt).toHaveBeenCalledWith("/cron add");
-    expect(api.sendMessage.mock.calls.some((call) => String(call[1]).includes("Created schedule Daily review"))).toBe(true);
-  });
-
-  it("normalizes bot-addressed Pi slash commands before bridging them", async () => {
-    const { bot, pi } = setupBot({
-      piSessionOverrides: {
-        listSlashCommands: vi.fn().mockResolvedValue([
-          { name: "compact", description: "Compact context", source: "extension", path: "/ext/compact.ts" },
-        ]),
-      },
-    });
-
-    await bot.handleUpdate(createTestUpdate({ message: { text: "/compact@telepi_test_bot focus recent work" } }));
-
-    expect(pi.service.prompt).toHaveBeenCalledWith("/compact focus recent work");
-  });
-
-  it("ignores slash commands addressed to another bot", async () => {
-    const { bot, pi, api } = setupBot({
-      piSessionOverrides: {
-        listSlashCommands: vi.fn().mockResolvedValue([
-          { name: "compact", description: "Compact context", source: "extension", path: "/ext/compact.ts" },
-        ]),
-      },
-    });
-
-    await bot.handleUpdate(createTestUpdate({ message: { text: "/compact@another_bot focus recent work" } }));
-
-    expect(pi.service.prompt).not.toHaveBeenCalled();
-    expect(api.sendMessage).not.toHaveBeenCalled();
-  });
-
-  it("does not bridge unknown slash commands and shows a helpful reply", async () => {
-    const { bot, pi, api } = setupBot({
-      piSessionOverrides: {
-        listSlashCommands: vi.fn().mockResolvedValue([]),
-      },
-    });
-
-    await bot.handleUpdate(createTestUpdate({ message: { text: "/ignored" } }));
-
-    expect(pi.service.listSlashCommands).toHaveBeenCalledTimes(1);
-    expect(pi.service.prompt).not.toHaveBeenCalled();
-    expect(api.sendMessage.mock.calls.some((call) => String(call[1]).includes("Unknown command"))).toBe(true);
-  });
-
-  it("shows /commands as a paginated picker with TelePi and Pi filters", async () => {
-    const { bot, pi, api } = setupBot({
-      piSessionOverrides: {
-        listSlashCommands: vi.fn().mockResolvedValue([
-          { name: "compact", description: "Compact context", source: "extension", path: "/ext/compact.ts" },
-          { name: "review", description: "Review staged changes", source: "prompt", path: "/prompts/review.md" },
-          { name: "skill:browser-tools", description: "Browser automation", source: "skill", path: "/skills/browser.md" },
-        ]),
-      },
-    });
-
-    await bot.handleUpdate(createTestUpdate({ message: { text: "/commands" } }));
-
-    expect(pi.service.listSlashCommands).toHaveBeenCalledTimes(1);
-    expect(api.sendMessage.mock.calls.some((call) => String(call[1]).includes("Command picker"))).toBe(true);
-    expect(getReplyMarkupData(api)).toContain("cmd_page_1");
-    expect(getReplyMarkupData(api)).toContain("cmd_filter_all");
-    expect(getReplyMarkupData(api)).toContain("cmd_filter_telepi");
-    expect(getReplyMarkupData(api)).toContain("cmd_filter_pi");
-
-    await bot.handleUpdate(createCallbackUpdate("cmd_page_2"));
-
-    expect(String(api.editMessageText.mock.calls[0]?.[2])).toContain("/compact");
-    expect(getEditedReplyMarkupTexts(api, 0)).toContain("🧩 /compact");
-    expect(getEditedReplyMarkupTexts(api, 0)).toContain("📝 /review");
-    expect(getEditedReplyMarkupTexts(api, 0)).toContain("🧰 /skill:browser-tools");
-
-    await bot.handleUpdate(createCallbackUpdate("cmd_filter_pi"));
-
-    expect(String(api.editMessageText.mock.calls[1]?.[2])).toContain("/compact");
-    expect(getEditedReplyMarkupTexts(api, 1)).toContain("🧩 /compact");
-    expect(getEditedReplyMarkupTexts(api, 1)).toContain("📝 /review");
-    expect(getEditedReplyMarkupTexts(api, 1)).toContain("🧰 /skill:browser-tools");
-    expect(getEditedReplyMarkupData(api, 1)).toContain("cmd_filter_all");
-    expect(getEditedReplyMarkupData(api, 1)).toContain("cmd_filter_telepi");
-    expect(getEditedReplyMarkupData(api, 1)).toContain("cmd_filter_pi");
-  });
-
-  it("runs TelePi commands from the /commands picker", async () => {
-    const { bot, api } = setupBot({
-      piSessionOverrides: {
-        listSlashCommands: vi.fn().mockResolvedValue([]),
-      },
-    });
-
-    await bot.handleUpdate(createTestUpdate({ message: { text: "/commands" } }));
-    const helpButton = getReplyMarkupButtons(api).find((button) => button.text.includes("/help"));
-
-    expect(helpButton).toBeDefined();
-
-    await bot.handleUpdate(createCallbackUpdate(helpButton!.callback_data));
-
-    expect(api.sendMessage.mock.calls.some((call) => String(call[1]).includes("Each Telegram chat/topic has its own Pi session and retry history."))).toBe(true);
-  });
-
-  it("runs Pi commands from the /commands picker", async () => {
-    const { bot, pi, api } = setupBot({
-      piSessionOverrides: {
-        listSlashCommands: vi.fn().mockResolvedValue([
-          { name: "compact", description: "Compact context", source: "extension", path: "/ext/compact.ts" },
-        ]),
-      },
-    });
-
-    await bot.handleUpdate(createTestUpdate({ message: { text: "/commands" } }));
-    await bot.handleUpdate(createCallbackUpdate("cmd_page_2"));
-    const compactButton = getEditedReplyMarkupButtons(api, 0).find((button) => button.text.includes("/compact"));
-
-    expect(compactButton).toBeDefined();
-
-    await bot.handleUpdate(createCallbackUpdate(compactButton!.callback_data));
-
-    expect(pi.service.prompt).toHaveBeenCalledWith("/compact");
-  });
-
-  it("shows prompt argument hints in /commands without changing Pi command dispatch", async () => {
-    const tempDir = mkdtempSync(path.join(tmpdir(), "telepi-command-picker-"));
-    const promptPath = path.join(tempDir, "review.md");
-    writeFileSync(
-      promptPath,
-      [
-        "---",
-        "description: Review staged changes",
-        'argument-hint: "<PR-URL>"',
-        "---",
-        "Review changes.",
-        "",
-      ].join("\n"),
-    );
-
-    try {
-      const { bot, pi, api } = setupBot({
-        piSessionOverrides: {
-          listSlashCommands: vi.fn().mockResolvedValue([
-            {
-              name: "review",
-              description: "Review staged changes",
-              source: "prompt",
-              sourceInfo: { path: promptPath, source: "local", scope: "project", origin: "top-level" },
-            },
-          ]),
-        },
-      });
-
-      await bot.handleUpdate(createTestUpdate({ message: { text: "/commands" } }));
-      await bot.handleUpdate(createCallbackUpdate("cmd_filter_pi"));
-
-      expect(String(api.editMessageText.mock.calls[0]?.[2])).toContain("/review &lt;PR-URL&gt;");
-      expect(getEditedReplyMarkupTexts(api, 0)).toContain("📝 /review <PR-URL>");
-
-      const reviewButton = getEditedReplyMarkupButtons(api, 0).find((button) => button.text.includes("/review <PR-URL>"));
-      expect(reviewButton).toBeDefined();
-
-      await bot.handleUpdate(createCallbackUpdate(reviewButton!.callback_data));
-
-      expect(pi.service.prompt).toHaveBeenCalledWith("/review");
-    } finally {
-      rmSync(tempDir, { recursive: true, force: true });
-    }
-  });
-
-  it("keeps the /commands picker active when a Pi command is tapped while busy", async () => {
-    const { bot, pi, api } = setupBot({
-      piSessionOverrides: {
-        isStreaming: vi.fn().mockReturnValueOnce(true).mockReturnValue(false),
-        listSlashCommands: vi.fn().mockResolvedValue([
-          { name: "compact", description: "Compact context", source: "extension", path: "/ext/compact.ts" },
-        ]),
-      },
-    });
-
-    await bot.handleUpdate(createTestUpdate({ message: { text: "/commands" } }));
-    await bot.handleUpdate(createCallbackUpdate("cmd_page_2"));
-    const compactButton = getEditedReplyMarkupButtons(api, 0).find((button) => button.text.includes("/compact"));
-
-    expect(compactButton).toBeDefined();
-
-    await bot.handleUpdate(createCallbackUpdate(compactButton!.callback_data));
-    expect(api.answerCallbackQuery).toHaveBeenCalledWith("cb_1", { text: "Wait for the current prompt to finish" });
-    expect(pi.service.prompt).not.toHaveBeenCalled();
-
-    await bot.handleUpdate(createCallbackUpdate(compactButton!.callback_data));
-    expect(pi.service.prompt).toHaveBeenCalledWith("/compact");
-  });
-
-  it("shows an empty-state Pi filter when no Pi commands are discovered", async () => {
-    const { bot, api } = setupBot({
-      piSessionOverrides: {
-        listSlashCommands: vi.fn().mockResolvedValue([]),
-      },
-    });
-
-    await bot.handleUpdate(createTestUpdate({ message: { text: "/commands" } }));
-    await bot.handleUpdate(createCallbackUpdate("cmd_filter_pi"));
-
-    expect(String(api.editMessageText.mock.calls[0]?.[2])).toContain("No Pi commands found in this session.");
-    expect(getEditedReplyMarkupData(api, 0)).toContain("cmd_filter_all");
-    expect(getEditedReplyMarkupData(api, 0)).toContain("cmd_filter_telepi");
-    expect(getEditedReplyMarkupData(api, 0)).toContain("cmd_filter_pi");
-  });
-
-  it("surfaces /commands discovery failures", async () => {
-    const { bot, api } = setupBot({
-      piSessionOverrides: {
-        listSlashCommands: vi.fn().mockRejectedValue(new Error("extensions unavailable")),
-      },
-    });
-
-    await bot.handleUpdate(createTestUpdate({ message: { text: "/commands" } }));
-
-    expect(api.sendMessage.mock.calls.some((call) => String(call[1]).includes("Failed to load commands"))).toBe(true);
-    expect(api.sendMessage.mock.calls.some((call) => String(call[1]).includes("extensions unavailable"))).toBe(true);
-  });
-
-  it("syncs chat-scoped Telegram commands for registerable Pi slash commands", async () => {
-    const { bot, api } = setupBot({
-      piSessionOverrides: {
-        listSlashCommands: vi.fn().mockResolvedValue([
-          { name: "compact", description: "Compact context", source: "extension", path: "/ext/compact.ts" },
-          { name: "review", description: "Review staged changes", source: "prompt", path: "/prompts/review.md" },
-          { name: "skill:browser-tools", description: "Browser automation", source: "skill", path: "/skills/browser.md" },
-          { name: "switch", description: "Should not override TelePi switch", source: "extension", path: "/ext/switch.ts" },
-        ]),
-      },
-    });
-
-    await bot.handleUpdate(createTestUpdate({ message: { text: "/commands" } }));
-
-    const scoped = getSetMyCommandsCall(api, 0);
-    expect(scoped?.scope).toEqual({ type: "chat", chat_id: ALLOWED_CHAT_ID });
-    expect(scoped?.commands.some((command) => command.command === "compact")).toBe(true);
-    expect(scoped?.commands.some((command) => command.command === "review")).toBe(true);
-    expect(scoped?.commands.some((command) => command.command === "skill:browser-tools")).toBe(false);
-    expect(scoped?.commands.some((command) => command.command === "switch" && command.description.startsWith("Pi:"))).toBe(false);
-  });
-
-  it("avoids redundant scoped Telegram command sync when the command set is unchanged", async () => {
-    const { bot, api } = setupBot({
-      piSessionOverrides: {
-        listSlashCommands: vi.fn().mockResolvedValue([
-          { name: "compact", description: "Compact context", source: "extension", path: "/ext/compact.ts" },
-        ]),
-      },
-    });
-
-    await bot.handleUpdate(createTestUpdate({ message: { text: "/commands" } }));
-    await bot.handleUpdate(createTestUpdate({ message: { text: "/commands" } }));
-
-    expect(api.setMyCommands).toHaveBeenCalledTimes(1);
-  });
-
-  it("replaces chat-scoped Telegram commands when the discovered Pi commands change", async () => {
-    const listSlashCommands = vi.fn()
-      .mockResolvedValueOnce([
-        { name: "compact", description: "Compact context", source: "extension", path: "/ext/compact.ts" },
-      ])
-      .mockResolvedValueOnce([]);
-    const { bot, api } = setupBot({
-      piSessionOverrides: {
-        listSlashCommands,
-      },
-    });
-
-    await bot.handleUpdate(createTestUpdate({ message: { text: "/commands" } }));
-    await bot.handleUpdate(createTestUpdate({ message: { text: "/commands" } }));
-
-    expect(api.setMyCommands).toHaveBeenCalledTimes(2);
-    expect(getSetMyCommandsCall(api, 0)?.commands.some((command) => command.command === "compact")).toBe(true);
-    expect(getSetMyCommandsCall(api, 1)?.commands.some((command) => command.command === "compact")).toBe(false);
-  });
-
-  it("forwards runtime-backed new-session options from extension command actions", async () => {
-    const { bot, pi } = setupBot();
-    const withSession = vi.fn().mockResolvedValue(undefined);
-
-    const promptMock = pi.service.prompt as ReturnType<typeof vi.fn>;
-    promptMock.mockImplementation(async () => {
-      await pi.getExtensionBindings()?.commandContextActions?.newSession({
-        parentSession: "/tmp/handoff-parent.jsonl",
-        withSession,
-      });
-      pi.emitAgentEnd();
-    });
-
-    await bot.handleUpdate(createTestUpdate({ message: { text: "prepare a handoff" } }));
-
-    expect(pi.service.newSession).toHaveBeenCalledWith({
-      parentSession: "/tmp/handoff-parent.jsonl",
-      withSession,
-    });
-  });
-
-  it("forwards runtime-backed fork options from extension command actions", async () => {
-    const { bot, pi } = setupBot();
-    const withSession = vi.fn().mockResolvedValue(undefined);
-
-    const promptMock = pi.service.prompt as ReturnType<typeof vi.fn>;
-    promptMock.mockImplementation(async () => {
-      await pi.getExtensionBindings()?.commandContextActions?.fork("leaf1234", {
-        position: "before",
-        withSession,
-      });
-      pi.emitAgentEnd();
-    });
-
-    await bot.handleUpdate(createTestUpdate({ message: { text: "fork from extension" } }));
-
-    expect(pi.service.fork).toHaveBeenCalledWith("leaf1234", {
-      position: "before",
-      withSession,
-    });
-  });
-
-  it("bubbles cancelled switch-session results from extension command actions", async () => {
-    const { bot, pi } = setupBot({
-      piSessionOverrides: {
-        switchSession: vi.fn().mockResolvedValue({
-          sessionId: "test-id",
-          sessionFile: "/tmp/test.jsonl",
-          workspace: "/workspace",
-          model: "anthropic/claude-sonnet-4-5",
-          cancelled: true,
-        }),
-      },
-    });
-    const withSession = vi.fn().mockResolvedValue(undefined);
-    let switchResult: { cancelled: boolean } | undefined;
-
-    const promptMock = pi.service.prompt as ReturnType<typeof vi.fn>;
-    promptMock.mockImplementation(async () => {
-      switchResult = await pi.getExtensionBindings()?.commandContextActions?.switchSession("/tmp/other.jsonl", {
-        withSession,
-      });
-      pi.emitAgentEnd();
-    });
-
-    await bot.handleUpdate(createTestUpdate({ message: { text: "switch from extension" } }));
-
-    expect(pi.service.switchSession).toHaveBeenCalledWith("/tmp/other.jsonl", { withSession });
-    expect(switchResult).toEqual({ cancelled: true });
-  });
-
-  it("surfaces extension command notifications in Telegram", async () => {
-    const { bot, pi, api } = setupBot({
-      piSessionOverrides: {
-        listSlashCommands: vi.fn().mockResolvedValue([
-          { name: "compact", description: "Compact context", source: "extension", path: "/ext/compact.ts" },
-        ]),
-      },
-    });
-
-    const promptMock = pi.service.prompt as ReturnType<typeof vi.fn>;
-    promptMock.mockImplementation(async () => {
-      pi.getExtensionBindings()?.uiContext?.notify("No conversation to compact", "error");
-    });
-
-    await bot.handleUpdate(createTestUpdate({ message: { text: "/compact" } }));
-    await nextTick();
-
-    expect(pi.service.bindExtensions).toHaveBeenCalledTimes(1);
-    expect(api.sendMessage.mock.calls.some((call) => String(call[1]).includes("No conversation to compact"))).toBe(true);
-  });
-
-  it("surfaces extension command errors in Telegram", async () => {
-    const { bot, pi, api } = setupBot({
-      piSessionOverrides: {
-        listSlashCommands: vi.fn().mockResolvedValue([
-          { name: "compact", description: "Compact context", source: "extension", path: "/ext/compact.ts" },
-        ]),
-      },
-    });
-
-    const promptMock = pi.service.prompt as ReturnType<typeof vi.fn>;
-    promptMock.mockImplementation(async () => {
-      pi.getExtensionBindings()?.onError?.({
-        extensionPath: "command:compact",
-        event: "command",
-        error: "boom",
-      });
-    });
-
-    await bot.handleUpdate(createTestUpdate({ message: { text: "/compact" } }));
-    await nextTick();
-
-    expect(pi.service.bindExtensions).toHaveBeenCalledTimes(1);
-    expect(api.sendMessage.mock.calls.some((call) => String(call[1]).includes("/compact failed"))).toBe(true);
-    expect(api.sendMessage.mock.calls.some((call) => String(call[1]).includes("boom"))).toBe(true);
-  });
-
-  it("supports extension select dialogs through Telegram callbacks", async () => {
-    const { bot, pi, api } = setupBot({
-      piSessionOverrides: {
-        listSlashCommands: vi.fn().mockResolvedValue([
-          { name: "pick", description: "Pick an option", source: "extension", path: "/ext/pick.ts" },
-        ]),
-      },
-    });
-
-    const promptMock = pi.service.prompt as ReturnType<typeof vi.fn>;
-    promptMock.mockImplementation(async () => {
-      const choice = await pi.getExtensionBindings()?.uiContext?.select("Pick one", ["Alpha", "Beta"]);
-      pi.emitTextDelta(`picked ${choice}`);
-      pi.emitAgentEnd();
-    });
-
-    const pending = bot.handleUpdate(createTestUpdate({ message: { text: "/pick" } }));
-    await nextTick();
-
-    expect(api.sendMessage.mock.calls.some((call) => String(call[1]).includes("Pick one"))).toBe(true);
-    const selectCallback = getReplyMarkupData(api, 0).find((data) => /^ui_sel_[a-z0-9]+_1$/.test(data ?? ""));
-    expect(selectCallback).toBeTruthy();
-
-    await bot.handleUpdate(createCallbackUpdate(selectCallback!));
-    await pending;
-
-    expect(api.sendMessage.mock.calls.some((call) => String(call[1]).includes("picked Beta"))).toBe(true);
-  });
-
-  it("supports extension select dialogs when forum callbacks omit the topic thread id", async () => {
-    const topicKey = makeContextKey(ALLOWED_CHAT_ID, 101);
-    const { bot, api, registry } = setupBot({
-      perContextSessionOverrides: {
-        [topicKey]: {
-          listSlashCommands: vi.fn().mockResolvedValue([
-            { name: "pick", description: "Pick an option", source: "extension", path: "/ext/pick.ts" },
-          ]),
-        },
-      },
-    });
-
-    await registry.registry.getOrCreate({ chatId: ALLOWED_CHAT_ID, messageThreadId: 101 });
-    const topicPi = registry.getSession(ALLOWED_CHAT_ID, 101)!;
-    const promptMock = topicPi.service.prompt as ReturnType<typeof vi.fn>;
-    promptMock.mockImplementation(async () => {
-      const choice = await topicPi.getExtensionBindings()?.uiContext?.select("Pick one", ["Alpha", "Beta"]);
-      topicPi.emitTextDelta(`picked ${choice}`);
-      topicPi.emitAgentEnd();
-    });
-
-    const pending = bot.handleUpdate(
-      createTestUpdate({
-        message: {
-          text: "/pick",
-          chat: { id: ALLOWED_CHAT_ID, type: "supergroup" },
-          message_thread_id: 101,
-        },
-      }),
-    );
-    await nextTick();
-
-    const selectCallback = api.sendMessage.mock.calls
-      .flatMap((call) => call[2]?.reply_markup?.inline_keyboard?.flat().map((button: any) => button.callback_data) ?? [])
-      .find((data) => /^ui_sel_[a-z0-9]+_1$/.test(data ?? ""));
-    expect(selectCallback).toBeTruthy();
-
-    await bot.handleUpdate(
-      createCallbackUpdate(selectCallback!, {
-        callback_query: {
-          message: {
-            chat: { id: ALLOWED_CHAT_ID, type: "supergroup" },
-          },
-        },
-      }),
-    );
-    await pending;
-
-    expect(api.answerCallbackQuery).toHaveBeenCalledWith("cb_1", { text: "Selected Beta" });
-    expect(api.sendMessage.mock.calls.some(
-      (call) => String(call[1]).includes("picked Beta") && call[2]?.message_thread_id === 101,
-    )).toBe(true);
-  });
-
-  it("still resolves extension dialog callbacks when Telegram rejects answerCallbackQuery", async () => {
-    const { bot, pi, api } = setupBot({
-      piSessionOverrides: {
-        listSlashCommands: vi.fn().mockResolvedValue([
-          { name: "pick", description: "Pick an option", source: "extension", path: "/ext/pick.ts" },
-        ]),
-      },
-    });
-
-    const promptMock = pi.service.prompt as ReturnType<typeof vi.fn>;
-    promptMock.mockImplementation(async () => {
-      const choice = await pi.getExtensionBindings()?.uiContext?.select("Pick one", ["Alpha", "Beta"]);
-      pi.emitTextDelta(`picked ${choice}`);
-      pi.emitAgentEnd();
-    });
-
-    const pending = bot.handleUpdate(createTestUpdate({ message: { text: "/pick" } }));
-    await nextTick();
-
-    const selectCallback = getReplyMarkupData(api, 0).find((data) => /^ui_sel_[a-z0-9]+_1$/.test(data ?? ""));
-    expect(selectCallback).toBeTruthy();
-
-    api.answerCallbackQuery.mockRejectedValueOnce(new Error("query too old"));
-    await bot.handleUpdate(createCallbackUpdate(selectCallback!));
-    await pending;
-
-    expect(api.editMessageText.mock.calls.some((call) => String(call[2]).includes("Selected: Beta"))).toBe(true);
-    expect(api.sendMessage.mock.calls.some((call) => String(call[1]).includes("picked Beta"))).toBe(true);
-  });
-
-  it("supports extension confirm dialogs through Telegram callbacks", async () => {
-    const { bot, pi, api } = setupBot({
-      piSessionOverrides: {
-        listSlashCommands: vi.fn().mockResolvedValue([
-          { name: "confirm", description: "Confirm action", source: "extension", path: "/ext/confirm.ts" },
-        ]),
-      },
-    });
-
-    const promptMock = pi.service.prompt as ReturnType<typeof vi.fn>;
-    promptMock.mockImplementation(async () => {
-      const confirmed = await pi.getExtensionBindings()?.uiContext?.confirm("Confirm deploy", "Ship it?");
-      pi.emitTextDelta(`confirmed ${confirmed}`);
-      pi.emitAgentEnd();
-    });
-
-    const pending = bot.handleUpdate(createTestUpdate({ message: { text: "/confirm" } }));
-    await nextTick();
-
-    expect(api.sendMessage.mock.calls.some((call) => String(call[1]).includes("Confirm deploy"))).toBe(true);
-    const confirmCallback = getReplyMarkupData(api, 0).find((data) => data?.endsWith("_yes"));
-    expect(confirmCallback).toBeTruthy();
-
-    await bot.handleUpdate(createCallbackUpdate(confirmCallback!));
-    await pending;
-
-    expect(api.sendMessage.mock.calls.some((call) => String(call[1]).includes("confirmed true"))).toBe(true);
-  });
-
-  it("supports extension confirm dialogs when Telegram omits callback message ids", async () => {
-    const { bot, pi, api } = setupBot({
-      piSessionOverrides: {
-        listSlashCommands: vi.fn().mockResolvedValue([
-          { name: "confirm", description: "Confirm action", source: "extension", path: "/ext/confirm.ts" },
-        ]),
-      },
-    });
-
-    const promptMock = pi.service.prompt as ReturnType<typeof vi.fn>;
-    promptMock.mockImplementation(async () => {
-      const confirmed = await pi.getExtensionBindings()?.uiContext?.confirm("Confirm deploy", "Ship it?");
-      pi.emitTextDelta(`confirmed ${confirmed}`);
-      pi.emitAgentEnd();
-    });
-
-    const pending = bot.handleUpdate(createTestUpdate({ message: { text: "/confirm" } }));
-    await nextTick();
-
-    const confirmCallback = getReplyMarkupData(api, 0).find((data) => data?.endsWith("_yes"));
-    expect(confirmCallback).toBeTruthy();
-
-    await bot.handleUpdate(
-      createCallbackUpdate(confirmCallback!, {
-        callback_query: {
-          message: {
-            message_id: undefined,
-          },
-        },
-      }),
-    );
-    await pending;
-
-    expect(api.answerCallbackQuery).toHaveBeenCalledWith("cb_1", { text: "Confirmed" });
-    expect(api.sendMessage.mock.calls.some((call) => String(call[1]).includes("confirmed true"))).toBe(true);
-  });
-
-  it("supports extension input dialogs through Telegram replies", async () => {
-    const { bot, pi, api } = setupBot({
-      piSessionOverrides: {
-        listSlashCommands: vi.fn().mockResolvedValue([
-          { name: "ask", description: "Ask for input", source: "extension", path: "/ext/ask.ts" },
-        ]),
-      },
-    });
-
-    const promptMock = pi.service.prompt as ReturnType<typeof vi.fn>;
-    promptMock.mockImplementation(async () => {
-      const value = await pi.getExtensionBindings()?.uiContext?.input("Name", "Your name");
-      pi.emitTextDelta(`hello ${value}`);
-      pi.emitAgentEnd();
-    });
-
-    const pending = bot.handleUpdate(createTestUpdate({ message: { text: "/ask" } }));
-    await nextTick();
-
-    expect(api.sendMessage.mock.calls.some((call) => String(call[1]).includes("Name"))).toBe(true);
-
-    await bot.handleUpdate(createTestUpdate({ message: { text: "Bene" } }));
-    await pending;
-
-    expect(pi.service.prompt).toHaveBeenCalledTimes(1);
-    expect(api.sendMessage.mock.calls.some((call) => String(call[1]).includes("hello Bene"))).toBe(true);
-  });
-
-  it("times out pending extension dialogs and finalizes them in Telegram", async () => {
-    const { bot, pi, api } = setupBot({
-      piSessionOverrides: {
-        listSlashCommands: vi.fn().mockResolvedValue([
-          { name: "pick", description: "Pick an option", source: "extension", path: "/ext/pick.ts" },
-        ]),
-      },
-    });
-
-    const promptMock = pi.service.prompt as ReturnType<typeof vi.fn>;
-    promptMock.mockImplementation(async () => {
-      const choice = await pi.getExtensionBindings()?.uiContext?.select("Pick one", ["Alpha", "Beta"], { timeout: 5 });
-      pi.emitTextDelta(`picked ${choice}`);
-      pi.emitAgentEnd();
-    });
-
-    const pending = bot.handleUpdate(createTestUpdate({ message: { text: "/pick" } }));
-    await nextTick();
-    await new Promise((resolve) => setTimeout(resolve, 20));
-    await pending;
-
-    expect(api.editMessageText.mock.calls.some((call) => String(call[2]).includes("Dialog timed out."))).toBe(true);
-    expect(api.sendMessage.mock.calls.some((call) => String(call[1]).includes("picked undefined"))).toBe(true);
-  });
-
-  it("cancels pending extension dialogs via /abort and still aborts the session", async () => {
-    const { bot, pi, api } = setupBot({
-      piSessionOverrides: {
-        listSlashCommands: vi.fn().mockResolvedValue([
-          { name: "confirm", description: "Confirm action", source: "extension", path: "/ext/confirm.ts" },
-        ]),
-      },
-    });
-
-    const promptMock = pi.service.prompt as ReturnType<typeof vi.fn>;
-    promptMock.mockImplementation(async () => {
-      const confirmed = await pi.getExtensionBindings()?.uiContext?.confirm("Confirm deploy", "Ship it?");
-      pi.emitTextDelta(`confirmed ${confirmed}`);
-      pi.emitAgentEnd();
-    });
-
-    const pending = bot.handleUpdate(createTestUpdate({ message: { text: "/confirm" } }));
-    await nextTick();
-    await bot.handleUpdate(createTestUpdate({ message: { text: "/abort" } }));
-    await pending;
-
-    expect(pi.service.abort).toHaveBeenCalledTimes(1);
-    expect(api.editMessageText.mock.calls.some((call) => String(call[2]).includes("Dialog cancelled."))).toBe(true);
-    expect(api.sendMessage.mock.calls.some((call) => String(call[1]).includes("confirmed false"))).toBe(true);
-  });
-
-  it("blocks voice messages while an extension input dialog is pending", async () => {
-    const { bot, pi, api } = setupBot({
-      piSessionOverrides: {
-        listSlashCommands: vi.fn().mockResolvedValue([
-          { name: "ask", description: "Ask for input", source: "extension", path: "/ext/ask.ts" },
-        ]),
-      },
-    });
-
-    let resolveInput!: (value: void | PromiseLike<void>) => void;
-    const promptMock = pi.service.prompt as ReturnType<typeof vi.fn>;
-    promptMock.mockImplementation(async () => {
-      await new Promise<void>(async (resolve) => {
-        resolveInput = resolve;
-        const value = await pi.getExtensionBindings()?.uiContext?.input("Name", "Your name");
-        pi.emitTextDelta(`hello ${value}`);
-        pi.emitAgentEnd();
-        resolve();
-      });
-    });
-
-    const pending = bot.handleUpdate(createTestUpdate({ message: { text: "/ask" } }));
-    await nextTick();
-    await bot.handleUpdate(createVoiceUpdate());
-
-    expect(api.sendMessage.mock.calls.at(-1)?.[1]).toContain("Please answer the pending prompt above or use /abort.");
-    expect(transcribeAudio).not.toHaveBeenCalled();
-
-    await bot.handleUpdate(createTestUpdate({ message: { text: "Bene" } }));
-    resolveInput();
-    await pending;
-  });
-
-  it("transcribes voice messages and feeds the transcript into the prompt flow", async () => {
-    const { bot, pi, api } = setupBot();
-    const promptMock = pi.service.prompt as ReturnType<typeof vi.fn>;
-    promptMock.mockImplementation(async () => {
-      pi.emitTextDelta("Voice response");
-      pi.emitAgentEnd();
-    });
-
-    await bot.handleUpdate(createVoiceUpdate());
-
-    expect(api.getFile).toHaveBeenCalledWith("voice-file-id");
-    expect(vi.mocked(fetch)).toHaveBeenCalledWith(
-      "https://api.telegram.org/file/botbot-token/voice/file.ogg",
-    );
-    expect(transcribeAudio).toHaveBeenCalledTimes(1);
-    expect(pi.service.prompt).toHaveBeenCalledWith("transcribed text");
-    expect(api.sendMessage.mock.calls.some((call) => String(call[1]).includes("🎤 transcribed text"))).toBe(true);
-    expect(api.sendMessage.mock.calls.some((call) => String(call[1]).includes("Voice response"))).toBe(true);
-    expect(writeFile).toHaveBeenCalledTimes(1);
-    expect(unlink).toHaveBeenCalledTimes(1);
-  });
-
-  it("handles photo messages by sending caption + image input to Pi", async () => {
-    const { bot, pi, api } = setupBot();
-    api.getFile.mockImplementation(async (fileId: string) => ({
-      file_id: fileId,
-      file_path: fileId === "photo-big" ? "images/photo-big.jpg" : "images/photo-small.jpg",
-    }));
-
-    const promptMock = pi.service.prompt as ReturnType<typeof vi.fn>;
-    promptMock.mockImplementation(async () => {
-      pi.emitTextDelta("Image response");
-      pi.emitAgentEnd();
-    });
-
-    await bot.handleUpdate(createPhotoUpdate());
-
-    expect(api.getFile).toHaveBeenCalledWith("photo-big");
-    expect(pi.service.prompt).toHaveBeenCalledWith("Check this graph", [
-      {
-        type: "image",
-        data: Buffer.from("image-bytes").toString("base64"),
-        mimeType: "image/jpeg",
-      },
-    ]);
-    expect(api.sendMessage.mock.calls.some((call) => String(call[1]).includes("🖼️ Check this graph"))).toBe(true);
-    expect(unlink).toHaveBeenCalledTimes(1);
-  });
-
-  it("handles image documents and ignores non-image documents", async () => {
-    const { bot, pi, api } = setupBot();
-    api.getFile.mockImplementation(async (fileId: string) => ({
-      file_id: fileId,
-      file_path: "docs/diagram.png",
-    }));
-
-    const promptMock = pi.service.prompt as ReturnType<typeof vi.fn>;
-    promptMock.mockImplementation(async () => {
-      pi.emitTextDelta("Document image response");
-      pi.emitAgentEnd();
-    });
-
-    await bot.handleUpdate(createDocumentUpdate({ message: { caption: undefined } }));
-
-    expect(pi.service.prompt).toHaveBeenCalledWith("Please analyze this image.", [
-      {
-        type: "image",
-        data: Buffer.from("image-bytes").toString("base64"),
-        mimeType: "image/png",
-      },
-    ]);
-    expect(api.sendMessage.mock.calls.some((call) => String(call[1]).includes("Please analyze this image."))).toBe(true);
-
-    await bot.handleUpdate(createDocumentUpdate({
-      message: {
-        document: {
-          file_id: "document-text-id",
-          file_unique_id: "document-text-unique",
-          file_name: "notes.txt",
-          mime_type: "text/plain",
-          file_size: 128,
-        },
-      },
-    }));
-
-    expect(api.getFile).not.toHaveBeenCalledWith("document-text-id");
-    expect(pi.service.prompt).toHaveBeenCalledTimes(1);
-  });
-
-  it("blocks voice messages while processing and reports transcription failures", async () => {
-    let resolvePrompt!: () => void;
-    const busy = setupBot({
-      piSessionOverrides: {
-        prompt: vi.fn().mockImplementation(
-          () =>
-            new Promise<void>((resolve) => {
-              resolvePrompt = resolve;
-            }),
-        ),
-      },
-    });
-
-    const pending = busy.bot.handleUpdate(createTestUpdate({ message: { text: "first" } }));
-    await nextTick();
-    await busy.bot.handleUpdate(createVoiceUpdate());
-
-    expect(busy.api.sendMessage.mock.calls.at(-1)?.[1]).toContain("Still working on previous message...");
-    expect(transcribeAudio).not.toHaveBeenCalled();
-
-    resolvePrompt();
-    await pending;
-
-    vi.mocked(transcribeAudio).mockRejectedValueOnce(new Error("backend missing"));
-    const failure = setupBot();
-    await failure.bot.handleUpdate(createVoiceUpdate());
-
-    expect(failure.api.sendMessage.mock.calls.some((call) => String(call[1]).includes("Transcription failed:"))).toBe(
-      true,
-    );
-    expect(failure.pi.service.prompt).not.toHaveBeenCalled();
-    expect(unlink).toHaveBeenCalled();
-  });
-
-  it("auto-creates a session for audio files before prompting", async () => {
-    const noSession = setupBot({
-      piSessionOverrides: {
-        hasActiveSession: vi.fn().mockReturnValue(false),
-      },
-    });
-    const promptMock = noSession.pi.service.prompt as ReturnType<typeof vi.fn>;
-    promptMock.mockImplementation(async () => {
-      noSession.pi.emitTextDelta("Audio response");
-      noSession.pi.emitAgentEnd();
-    });
-
-    await noSession.bot.handleUpdate(
-      createVoiceUpdate({
-        message: {
-          voice: undefined,
-          audio: {
-            file_id: "audio-file-id",
-            file_unique_id: "audio-unique",
-            duration: 6,
-            mime_type: "audio/ogg",
-            file_name: "clip.ogg",
-          },
-        },
-      }),
-    );
-
-    expect(noSession.api.getFile).toHaveBeenCalledWith("audio-file-id");
-    expect(noSession.pi.service.newSession).toHaveBeenCalledTimes(1);
-    expect(noSession.pi.service.prompt).toHaveBeenCalledWith("transcribed text");
-  });
-
-  it("blocks new messages while processing and auto-creates a session when needed", async () => {
-    let resolvePrompt!: () => void;
-    const busy = setupBot({
-      piSessionOverrides: {
-        prompt: vi.fn().mockImplementation(
-          () => new Promise<void>((resolve) => {
-            resolvePrompt = resolve;
-          }),
-        ),
-      },
-    });
-
-    const first = busy.bot.handleUpdate(createTestUpdate({ message: { text: "first" } }));
-    await nextTick();
-    await busy.bot.handleUpdate(createTestUpdate({ message: { text: "second" } }));
-
-    expect(busy.api.sendMessage.mock.calls.at(-1)?.[1]).toContain("Still working on previous message...");
-
-    resolvePrompt();
-    await first;
-
-    const noSession = setupBot({
-      piSessionOverrides: {
-        hasActiveSession: vi.fn().mockReturnValue(false),
-      },
-    });
-    const promptMock = noSession.pi.service.prompt as ReturnType<typeof vi.fn>;
-    promptMock.mockImplementation(async () => {
-      noSession.pi.emitTextDelta("Fresh session response");
-      noSession.pi.emitAgentEnd();
-    });
-
-    await noSession.bot.handleUpdate(createTestUpdate({ message: { text: "start over" } }));
-
-    expect(noSession.pi.service.newSession).toHaveBeenCalledTimes(1);
-    expect(noSession.pi.service.prompt).toHaveBeenCalledWith("start over");
-  });
-
-  it("blocks commands while switching sessions", async () => {
-    let resolveSwitch!: (info: SwitchResult) => void;
-    const { bot, api } = setupBot({
-      piSessionOverrides: {
-        switchSession: vi.fn().mockImplementation(
-          () =>
-            new Promise<SwitchResult>((resolve) => {
-              resolveSwitch = resolve;
-            }),
-        ),
-      },
-    });
-
-    const switching = bot.handleUpdate(createTestUpdate({ message: { text: "/sessions /saved/session.jsonl" } }));
-    await nextTick();
-    await bot.handleUpdate(createTestUpdate({ message: { text: "/new" } }));
-
-    expect(api.sendMessage.mock.calls.at(-1)?.[1]).toContain(
-      "Cannot create new session while a prompt is running.",
-    );
-
-    resolveSwitch({
-      sessionId: "switched-id",
-      sessionFile: "/tmp/switched.jsonl",
-      workspace: "/other",
-      model: "anthropic/claude-sonnet-4-5",
-      cancelled: false,
-    });
-    await switching;
-  });
-
-  it("blocks tree commands while processing or switching", async () => {
-    let resolvePrompt!: () => void;
-    const busy = setupBot({
-      piSessionOverrides: {
-        prompt: vi.fn().mockImplementation(
-          () =>
-            new Promise<void>((resolve) => {
-              resolvePrompt = resolve;
-            }),
-        ),
-      },
-    });
-
-    const pending = busy.bot.handleUpdate(createTestUpdate({ message: { text: "hello" } }));
-    await nextTick();
-    await busy.bot.handleUpdate(createTestUpdate({ message: { text: "/tree" } }));
-    await busy.bot.handleUpdate(createTestUpdate({ message: { text: "/branch branch111" } }));
-    await busy.bot.handleUpdate(createTestUpdate({ message: { text: "/label mark" } }));
-    await busy.bot.handleUpdate(createCallbackUpdate("tree_nav_branch111"));
-
-    expect(busy.api.sendMessage.mock.calls.some((call) => String(call[1]).includes("Cannot view tree while a prompt is running."))).toBe(true);
-    expect(busy.api.sendMessage.mock.calls.some((call) => String(call[1]).includes("Cannot navigate while a prompt is running."))).toBe(true);
-    expect(busy.api.sendMessage.mock.calls.some((call) => String(call[1]).includes("Cannot label entries while a prompt is running."))).toBe(true);
-    expect(busy.api.answerCallbackQuery).toHaveBeenCalledWith("cb_1", {
-      text: "Wait for the current prompt to finish",
-    });
-
-    resolvePrompt();
-    await pending;
-  });
-
-  it("surfaces startup error diagnostics once before the first prompt in a fresh context", async () => {
-    const topicKey = makeContextKey(ALLOWED_CHAT_ID, 909);
-    let registryRef: ReturnType<typeof createMockPiSessionRegistry> | undefined;
-    const prompt = vi.fn().mockImplementation(async () => {
-      const topicSession = registryRef?.getSession(ALLOWED_CHAT_ID, 909);
-      topicSession?.emitTextDelta("Fresh context response");
-      topicSession?.emitAgentEnd();
-    });
-    const harness = setupBot({
-      perContextSessionOverrides: {
-        [topicKey]: {
-          getInfo: vi.fn().mockReturnValue({
-            sessionId: "diagnostic-session",
-            sessionFile: "/tmp/diagnostic.jsonl",
-            workspace: "/workspace",
-            model: "anthropic/claude-sonnet-4-5",
-            diagnostics: [
-              { type: "error", message: 'Failed to load extension "/ext/bad.ts": boom' },
-              { type: "warning", message: "Theme issue (/themes/missing.json): theme path does not exist" },
-            ],
-          }),
-          prompt,
-        },
-      },
-    });
-    registryRef = harness.registry;
-    const { bot, api } = harness;
-
-    await bot.handleUpdate(createTestUpdate({
-      message: {
-        text: "first prompt",
-        chat: { id: ALLOWED_CHAT_ID, type: "supergroup" },
-        message_thread_id: 909,
-      },
-    }));
-    await bot.handleUpdate(createTestUpdate({
-      message: {
-        text: "second prompt",
-        chat: { id: ALLOWED_CHAT_ID, type: "supergroup" },
-        message_thread_id: 909,
-      },
-    }));
-
-    const startupMessages = api.sendMessage.mock.calls
-      .map((call) => String(call[1]))
-      .filter((text) => text.includes("Session startup issues"));
-    expect(startupMessages).toHaveLength(1);
-    expect(startupMessages[0]).toContain('Failed to load extension "/ext/bad.ts": boom');
-    expect(startupMessages[0]).not.toContain("Theme issue");
-  });
-
-  it("surfaces startup error diagnostics when /model creates a fresh session context", async () => {
-    const topicKey = makeContextKey(ALLOWED_CHAT_ID, 910);
-    const { bot, api } = setupBot({
-      perContextSessionOverrides: {
-        [topicKey]: {
-          getInfo: vi.fn().mockReturnValue({
-            sessionId: "model-diagnostic-session",
-            sessionFile: "/tmp/model-diagnostic.jsonl",
-            workspace: "/workspace",
-            model: "anthropic/claude-sonnet-4-5",
-            diagnostics: [
-              { type: "error", message: "Prompt issue (/prompts/deploy.md): invalid frontmatter" },
-            ],
-          }),
-        },
-      },
-    });
-
-    await bot.handleUpdate(createTestUpdate({
-      message: {
-        text: "/model",
-        chat: { id: ALLOWED_CHAT_ID, type: "supergroup" },
-        message_thread_id: 910,
-      },
-    }));
-
-    expect(api.sendMessage.mock.calls.some((call) => String(call[1]).includes("Session startup issues"))).toBe(true);
-    expect(api.sendMessage.mock.calls.some((call) => String(call[1]).includes("Prompt issue (/prompts/deploy.md): invalid frontmatter"))).toBe(true);
-    expect(api.sendMessage.mock.calls.some((call) => String(call[1]).includes("Select a model"))).toBe(true);
-  });
-
-  it("re-surfaces startup diagnostics after /handback tears down the context", async () => {
-    const topicKey = makeContextKey(ALLOWED_CHAT_ID, 911);
-    let registryRef: ReturnType<typeof createMockPiSessionRegistry> | undefined;
-    const prompt = vi.fn().mockImplementation(async () => {
-      const session = registryRef?.getSession(ALLOWED_CHAT_ID, 911);
-      session?.emitTextDelta("Context rebuilt response");
-      session?.emitAgentEnd();
-    });
-    const harness = setupBot({
-      perContextSessionOverrides: {
-        [topicKey]: {
-          getInfo: vi.fn().mockReturnValue({
-            sessionId: "reused-diagnostic-session",
-            sessionFile: "/tmp/reused-diagnostic.jsonl",
-            workspace: "/workspace",
-            model: "anthropic/claude-sonnet-4-5",
-            diagnostics: [
-              { type: "error", message: "Extension issue (/ext/reload.ts): startup failed" },
-            ],
-          }),
-          prompt,
-        },
-      },
-    });
-    registryRef = harness.registry;
-    const { bot, api } = harness;
-    const topicMessage = (text: string) => createTestUpdate({
-      message: {
-        text,
-        chat: { id: ALLOWED_CHAT_ID, type: "supergroup" },
-        message_thread_id: 911,
-      },
-    });
-
-    await bot.handleUpdate(topicMessage("first prompt"));
-    await bot.handleUpdate(topicMessage("/handback"));
-    await bot.handleUpdate(topicMessage("second prompt"));
-
-    const startupMessages = api.sendMessage.mock.calls
-      .map((call) => String(call[1]))
-      .filter((text) => text.includes("Session startup issues"));
-    expect(startupMessages).toHaveLength(2);
-    expect(startupMessages[0]).toContain("Extension issue (/ext/reload.ts): startup failed");
-    expect(startupMessages[1]).toContain("Extension issue (/ext/reload.ts): startup failed");
-  });
-
-  it("covers additional command edge cases", async () => {
-    const noSessions = setupBot({
-      piSessionOverrides: {
-        listAllSessions: vi.fn().mockResolvedValue([]),
-      },
-    });
-    await noSessions.bot.handleUpdate(createTestUpdate({ message: { text: "/sessions" } }));
-    expect(noSessions.api.sendMessage.mock.calls[0]?.[1]).toContain("No saved sessions found.");
-
-    const cancelledNew = setupBot({
-      piSessionOverrides: {
-        listWorkspaces: vi.fn().mockResolvedValue(["/workspace/A"]),
-        newSession: vi.fn().mockResolvedValue({
-          info: {
-            sessionId: "cancelled",
-            sessionFile: "/tmp/cancelled.jsonl",
-            workspace: "/workspace/A",
-            model: "anthropic/claude-sonnet-4-5",
-          },
-          created: false,
-        }),
-      },
-    });
-    await cancelledNew.bot.handleUpdate(createTestUpdate({ message: { text: "/new" } }));
-    expect(cancelledNew.api.sendMessage.mock.calls[0]?.[1]).toContain("New session was cancelled.");
-
-    const failedNew = setupBot({
-      piSessionOverrides: {
-        listWorkspaces: vi.fn().mockResolvedValue(["/workspace/A"]),
-        newSession: vi.fn().mockRejectedValue(new Error("new failed")),
-      },
-    });
-    await failedNew.bot.handleUpdate(createTestUpdate({ message: { text: "/new" } }));
-    expect(failedNew.api.sendMessage.mock.calls[0]?.[1]).toContain("new failed");
-
-    const sameWorkspaceNewUnavailable = setupBot({
-      piSessionOverrides: {
-        listWorkspaces: vi.fn().mockResolvedValue(["/workspace/A"]),
-        newSession: vi.fn().mockRejectedValue(
-          new Error("Starting a fresh session in the current workspace isn't available in this TelePi version yet."),
-        ),
-      },
-    });
-    await sameWorkspaceNewUnavailable.bot.handleUpdate(createTestUpdate({ message: { text: "/new" } }));
-    expect(sameWorkspaceNewUnavailable.api.sendMessage.mock.calls[0]?.[1]).toContain(
-      "Starting a fresh session in the current workspace isn't available in this TelePi version yet.",
-    );
-    expect(sameWorkspaceNewUnavailable.api.sendMessage.mock.calls[0]?.[1]).not.toContain("AgentSessionRuntime migration");
-
-    const failedModelBootstrap = setupBot({
-      piSessionOverrides: {
-        hasActiveSession: vi.fn().mockReturnValue(false),
-        newSession: vi.fn().mockRejectedValue(new Error("bootstrap failed")),
-      },
-    });
-    await failedModelBootstrap.bot.handleUpdate(createTestUpdate({ message: { text: "/model" } }));
-    expect(failedModelBootstrap.api.sendMessage.mock.calls[0]?.[1]).toContain("Failed to create session");
-    expect(failedModelBootstrap.api.sendMessage.mock.calls[0]?.[1]).toContain("bootstrap failed");
-
-    const noModels = setupBot({
-      piSessionOverrides: {
-        listModels: vi.fn().mockResolvedValue([]),
-      },
-    });
-    await noModels.bot.handleUpdate(createTestUpdate({ message: { text: "/model" } }));
-    expect(noModels.api.sendMessage.mock.calls[0]?.[1]).toContain("No models available.");
-  });
-
-  it("expires page callbacks when the original picker state is gone", async () => {
-    const { bot, api } = setupBot();
-
-    await bot.handleUpdate(createCallbackUpdate("switch_page_1"));
-    expect(api.answerCallbackQuery).toHaveBeenCalledWith("cb_1", {
-      text: "Expired, run /sessions again",
-    });
-
-    api.answerCallbackQuery.mockClear();
-    await bot.handleUpdate(createCallbackUpdate("newws_page_1"));
-    expect(api.answerCallbackQuery).toHaveBeenCalledWith("cb_1", {
-      text: "Expired, run /new again",
-    });
-
-    api.answerCallbackQuery.mockClear();
-    await bot.handleUpdate(createCallbackUpdate("model_page_1"));
-    expect(api.answerCallbackQuery).toHaveBeenCalledWith("cb_1", {
-      text: "Expired, run /model again",
-    });
-
-    api.answerCallbackQuery.mockClear();
-    await bot.handleUpdate(createCallbackUpdate("model_show_all"));
-    expect(api.answerCallbackQuery).toHaveBeenCalledWith("cb_1", {
-      text: "Expired, run /model again",
-    });
-
-    api.answerCallbackQuery.mockClear();
-    await bot.handleUpdate(createCallbackUpdate("tree_page_1"));
-    expect(api.answerCallbackQuery).toHaveBeenCalledWith("cb_1", {
-      text: "Expired, run /tree again",
-    });
-
-    api.answerCallbackQuery.mockClear();
-    await bot.handleUpdate(createCallbackUpdate("branch_page_1"));
-    expect(api.answerCallbackQuery).toHaveBeenCalledWith("cb_1", {
-      text: "Expired, run /branch again",
-    });
-  });
-
-  it("handles noop_page callback without editing the message", async () => {
-    const { bot, api } = setupBot();
-
-    await bot.handleUpdate(createCallbackUpdate("noop_page"));
-    expect(api.answerCallbackQuery).toHaveBeenCalledWith("cb_1", {});
-    expect(api.editMessageText).not.toHaveBeenCalled();
-    expect(api.editMessageReplyMarkup).not.toHaveBeenCalled();
-  });
-
-  it("handles callback edge cases and the abort button", async () => {
-    const abortCallback = setupBot();
-    await abortCallback.bot.handleUpdate(createCallbackUpdate("pi_abort"));
-    expect(abortCallback.api.answerCallbackQuery).toHaveBeenCalledWith("cb_1", { text: "Aborting..." });
-    expect(abortCallback.pi.service.abort).toHaveBeenCalledTimes(1);
-
-    const expiredWorkspace = setupBot();
-    await expiredWorkspace.bot.handleUpdate(createCallbackUpdate("newws_0"));
-    expect(expiredWorkspace.api.answerCallbackQuery).toHaveBeenCalledWith("cb_1", {
-      text: "Expired, run /new again",
-    });
-
-    const cancelledWorkspace = setupBot({
-      piSessionOverrides: {
-        newSession: vi.fn().mockResolvedValue({
-          info: {
-            sessionId: "cancelled",
-            sessionFile: "/tmp/cancelled.jsonl",
-            workspace: "/workspace/B",
-            model: "anthropic/claude-sonnet-4-5",
-          },
-          created: false,
-        }),
-      },
-    });
-    await cancelledWorkspace.bot.handleUpdate(createTestUpdate({ message: { text: "/new" } }));
-    await cancelledWorkspace.bot.handleUpdate(createCallbackUpdate("newws_1"));
-    expect(cancelledWorkspace.api.editMessageText.mock.calls.at(-1)?.[2]).toContain(
-      "New session was cancelled.",
-    );
-
-    const expiredModel = setupBot();
-    await expiredModel.bot.handleUpdate(createCallbackUpdate("model_0"));
-    expect(expiredModel.api.answerCallbackQuery).toHaveBeenCalledWith("cb_1", {
-      text: "Expired, run /model again",
-    });
-
-    const failedModel = setupBot({
-      piSessionOverrides: {
-        setModel: vi.fn().mockRejectedValue(new Error("model failed")),
-      },
-    });
-    await failedModel.bot.handleUpdate(createTestUpdate({ message: { text: "/model" } }));
-    await failedModel.bot.handleUpdate(createCallbackUpdate("model_1"));
-    expect(failedModel.api.editMessageText.mock.calls.at(-1)?.[2]).toContain("model failed");
-  });
-
-  it("summarizes tool usage, reports tool errors, and handles prompt failures", async () => {
-    const summary = setupBot();
-    const summaryPrompt = summary.pi.service.prompt as ReturnType<typeof vi.fn>;
-    summaryPrompt.mockImplementation(async () => {
-      summary.pi.emitTextDelta("Finished response");
-      summary.pi.emitToolStart("bash", "tool-1");
-      summary.pi.emitToolStart("read", "tool-2");
-      summary.pi.emitToolStart("bash", "tool-3");
-      summary.pi.emitAgentEnd();
-    });
-    await summary.bot.handleUpdate(createTestUpdate({ message: { text: "summarize" } }));
-    expect(summary.api.editMessageText.mock.calls.some((call) => String(call[2]).includes("bash ×2, read"))).toBe(
-      true,
-    );
-
-    const errorsOnly = setupBot({
-      configOverrides: { toolVerbosity: "errors-only" },
-    });
-    const errorsOnlyPrompt = errorsOnly.pi.service.prompt as ReturnType<typeof vi.fn>;
-    errorsOnlyPrompt.mockImplementation(async () => {
-      errorsOnly.pi.emitTextDelta("Answer");
-      errorsOnly.pi.emitToolStart("bash", "tool-1");
-      errorsOnly.pi.emitToolUpdate("tool-1", "stderr");
-      errorsOnly.pi.emitToolEnd("tool-1", true);
-      errorsOnly.pi.emitAgentEnd();
-    });
-    await errorsOnly.bot.handleUpdate(createTestUpdate({ message: { text: "show tool error" } }));
-    expect(errorsOnly.api.sendMessage.mock.calls.some((call) => String(call[1]).includes("❌"))).toBe(true);
-
-    const failure = setupBot();
-    const failurePrompt = failure.pi.service.prompt as ReturnType<typeof vi.fn>;
-    failurePrompt.mockImplementation(async () => {
-      failure.pi.emitTextDelta("Partial output");
-      throw new Error("prompt failed");
-    });
-    await failure.bot.handleUpdate(createTestUpdate({ message: { text: "break" } }));
-    expect(failure.api.editMessageText.mock.calls.some((call) => String(call[2]).includes("⚠️ prompt failed"))).toBe(
-      true,
-    );
-
-    const aborted = setupBot();
-    const abortedPrompt = aborted.pi.service.prompt as ReturnType<typeof vi.fn>;
-    abortedPrompt.mockImplementation(async () => {
-      aborted.pi.emitTextDelta("Partial output");
-      throw new Error("Abort requested");
-    });
-    await aborted.bot.handleUpdate(createTestUpdate({ message: { text: "stop" } }));
-    expect(aborted.api.editMessageText.mock.calls.some((call) => String(call[2]).includes("⏹ Aborted"))).toBe(
-      true,
-    );
-  });
-
-  it("handles Telegram parse fallbacks and long streaming responses", async () => {
-    const sendFallback = setupBot();
-    sendFallback.api.sendMessage
-      .mockRejectedValueOnce(new Error("can't parse entities"))
-      .mockImplementation(async (chatId: number | string, text: string, opts?: any) => ({
-        message_id: 99,
-        chat: { id: chatId },
-        text,
-        ...opts,
-      }));
-    await sendFallback.bot.handleUpdate(createTestUpdate({ message: { text: "/start" } }));
-    expect(sendFallback.api.sendMessage).toHaveBeenCalledTimes(2);
-    expect(sendFallback.api.sendMessage.mock.calls[1]?.[2]?.parse_mode).toBeUndefined();
-
-    const editFallback = setupBot();
-    editFallback.api.editMessageText
-      .mockRejectedValueOnce(new Error("unsupported start tag"))
-      .mockResolvedValue(true);
-    await editFallback.bot.handleUpdate(createTestUpdate({ message: { text: "/model" } }));
-    await editFallback.bot.handleUpdate(createCallbackUpdate("model_1"));
-    expect(editFallback.api.editMessageText).toHaveBeenCalledTimes(2);
-    expect(editFallback.api.editMessageText.mock.calls[1]?.[3]?.parse_mode).toBeUndefined();
-
-    const notModified = setupBot();
-    notModified.api.editMessageText.mockRejectedValueOnce(new Error("message is not modified"));
-    await notModified.bot.handleUpdate(createTestUpdate({ message: { text: "/model" } }));
-    await notModified.bot.handleUpdate(createCallbackUpdate("model_1"));
-    expect(notModified.api.editMessageText).toHaveBeenCalledTimes(1);
-
-    const longResponse = setupBot();
-    const longPrompt = longResponse.pi.service.prompt as ReturnType<typeof vi.fn>;
-    const longChunk = "word ".repeat(900);
-    longPrompt.mockImplementation(async () => {
-      longResponse.pi.emitTextDelta(`${longChunk}${longChunk}`);
-      longResponse.pi.emitTextDelta(`${longChunk}${longChunk}`);
-      longResponse.pi.emitAgentEnd();
-    });
-    await longResponse.bot.handleUpdate(createTestUpdate({ message: { text: "long reply" } }));
-    expect(longResponse.api.sendMessage.mock.calls.some((call) => String(call[1]).includes("preview truncated"))).toBe(
-      true,
-    );
-    expect(longResponse.api.sendMessage.mock.calls.length).toBeGreaterThan(1);
-  });
-
-  it("registers bot commands", async () => {
-    const { bot, api } = setupBot();
-
-    await registerCommands(bot);
-
-    expect(api.setMyCommands).toHaveBeenCalledWith([
-      { command: "start", description: "Welcome and session info" },
-      { command: "help", description: "Show commands and usage tips" },
-      { command: "commands", description: "Browse TelePi and Pi commands" },
-      { command: "new", description: "Start a new session" },
-      { command: "retry", description: "Retry the last prompt in this chat/topic" },
-      { command: "handback", description: "Hand session back to Pi CLI" },
-      { command: "abort", description: "Cancel current operation" },
-      { command: "session", description: "Current session details" },
-      { command: "sessions", description: "List and switch sessions (or /sessions <path|id>)" },
-      { command: "context", description: "Show context usage and session stats" },
-      { command: "model", description: "Switch AI model" },
-      { command: "tree", description: "View and navigate the session tree" },
-      { command: "branch", description: "Navigate to a tree entry (/branch <id>)" },
-      { command: "label", description: "Label an entry (/label [name] or /label <id> <name>)" },
-    ], undefined);
-  });
-
-  it("blocks commands when piSession.isStreaming() returns true", async () => {
-    const streaming = setupBot({
-      piSessionOverrides: {
-        isStreaming: vi.fn().mockReturnValue(true),
-      },
-    });
-
-    // /sessions should be blocked
-    await streaming.bot.handleUpdate(createTestUpdate({ message: { text: "/sessions" } }));
-    expect(streaming.api.sendMessage.mock.calls[0]?.[1]).toContain("Cannot switch sessions while a prompt is running.");
-
-    // /new should be blocked
-    await streaming.bot.handleUpdate(createTestUpdate({ message: { text: "/new" } }));
-    expect(streaming.api.sendMessage.mock.calls[1]?.[1]).toContain("Cannot create new session while a prompt is running.");
-
-    // /handback should be blocked
-    await streaming.bot.handleUpdate(createTestUpdate({ message: { text: "/handback" } }));
-    expect(streaming.api.sendMessage.mock.calls[2]?.[1]).toContain("Cannot hand back while a prompt is running.");
-
-    // tree commands should be blocked
-    await streaming.bot.handleUpdate(createTestUpdate({ message: { text: "/tree" } }));
-    expect(streaming.api.sendMessage.mock.calls[3]?.[1]).toContain("Cannot view tree while a prompt is running.");
-    await streaming.bot.handleUpdate(createTestUpdate({ message: { text: "/branch branch111" } }));
-    expect(streaming.api.sendMessage.mock.calls[4]?.[1]).toContain("Cannot navigate while a prompt is running.");
-    await streaming.bot.handleUpdate(createTestUpdate({ message: { text: "/label saved" } }));
-    expect(streaming.api.sendMessage.mock.calls[5]?.[1]).toContain("Cannot label entries while a prompt is running.");
-
-    // text messages should be blocked
-    await streaming.bot.handleUpdate(createTestUpdate({ message: { text: "hello there" } }));
-    expect(streaming.api.sendMessage.mock.calls[6]?.[1]).toContain("Still working on previous message...");
-
-    await streaming.bot.handleUpdate(createCallbackUpdate("tree_nav_branch111"));
-    expect(streaming.api.answerCallbackQuery).toHaveBeenCalledWith("cb_1", {
-      text: "Wait for the current prompt to finish",
-    });
-  });
-
-  it("sends '✅ Done' when agent ends with no text output", async () => {
-    const { bot, pi, api } = setupBot();
-    const promptMock = pi.service.prompt as ReturnType<typeof vi.fn>;
-    promptMock.mockImplementation(async () => {
-      // Agent ends without emitting any text deltas
-      pi.emitAgentEnd();
-    });
-
-    await bot.handleUpdate(createTestUpdate({ message: { text: "do something silent" } }));
-
-    const allSentTexts = api.sendMessage.mock.calls.map((call) => String(call[1]));
-    expect(allSentTexts.some((text) => text.includes("✅ Done"))).toBe(true);
-  });
-
-  it("handles in-memory handback (no sessionFile)", async () => {
-    const { bot, api, registry } = setupBot({
-      piSessionOverrides: {
-        handback: vi.fn().mockResolvedValue({
-          sessionFile: undefined,
-          workspace: "/workspace",
-        }),
-      },
-    });
-
-    await bot.handleUpdate(createTestUpdate({ message: { text: "/handback" } }));
-
-    expect(api.sendMessage.mock.calls[0]?.[1]).toContain("Session was in-memory");
-    expect(api.sendMessage.mock.calls[0]?.[1]).toContain("No file to resume");
-    expect((registry.registry.remove as ReturnType<typeof vi.fn>)).toHaveBeenCalledWith({
-      chatId: ALLOWED_CHAT_ID,
-    });
-  });
-
-  it("handles handback error", async () => {
-    const { bot, api } = setupBot({
-      piSessionOverrides: {
-        handback: vi.fn().mockRejectedValue(new Error("dispose exploded")),
-      },
-    });
-
-    await bot.handleUpdate(createTestUpdate({ message: { text: "/handback" } }));
-
-    expect(api.sendMessage.mock.calls[0]?.[1]).toContain("Failed:");
-    expect(api.sendMessage.mock.calls[0]?.[1]).toContain("dispose exploded");
-  });
-
-  it("blocks text messages when isSwitching is active", async () => {
-    let resolveSwitch!: (info: SwitchResult) => void;
-    const { bot, api } = setupBot({
-      piSessionOverrides: {
-        switchSession: vi.fn().mockImplementation(
-          () =>
-            new Promise<SwitchResult>((resolve) => {
-              resolveSwitch = resolve;
-            }),
-        ),
-      },
-    });
-
-    // Start a switch via /sessions <path>
-    const switching = bot.handleUpdate(createTestUpdate({ message: { text: "/sessions /saved/session.jsonl" } }));
-    await nextTick();
-
-    // Try to send a text message — should be blocked
-    await bot.handleUpdate(createTestUpdate({ message: { text: "hello there" } }));
-    expect(api.sendMessage.mock.calls.at(-1)?.[1]).toContain("Still working on previous message...");
-
-    resolveSwitch({
-      sessionId: "switched-id",
-      sessionFile: "/tmp/switched.jsonl",
-      workspace: "/other",
-      model: "anthropic/claude-sonnet-4-5",
-      cancelled: false,
-    });
-    await switching;
-  });
-
-  it("handles switch callback error", async () => {
-    const { bot, api } = setupBot({
-      piSessionOverrides: {
-        switchSession: vi.fn().mockRejectedValue(new Error("switch exploded")),
-      },
-    });
-
-    // Set up picks first
-    await bot.handleUpdate(createTestUpdate({ message: { text: "/sessions" } }));
-    // Now click a switch button
-    await bot.handleUpdate(createCallbackUpdate("switch_0"));
-
-    expect(api.editMessageText.mock.calls.at(-1)?.[2]).toContain("Failed:");
-    expect(api.editMessageText.mock.calls.at(-1)?.[2]).toContain("switch exploded");
-  });
-
-  it("handles newws callback error", async () => {
-    const { bot, api } = setupBot({
-      piSessionOverrides: {
-        newSession: vi.fn().mockRejectedValue(new Error("create exploded")),
-      },
-    });
-
-    // Set up workspace picks
-    await bot.handleUpdate(createTestUpdate({ message: { text: "/new" } }));
-    // Click a workspace button
-    await bot.handleUpdate(createCallbackUpdate("newws_0"));
-
-    expect(api.editMessageText.mock.calls.at(-1)?.[2]).toContain("Failed:");
-    expect(api.editMessageText.mock.calls.at(-1)?.[2]).toContain("create exploded");
-  });
-
-  it("shows context usage with /context command", async () => {
-    const { bot, api } = setupBot({
-      piSessionOverrides: {
-        getContextUsage: vi.fn().mockReturnValue({
-          tokens: 15000,
-          contextWindow: 128000,
-          percent: 11.72,
-        }),
-        getSessionStats: vi.fn().mockReturnValue({
-          userMessages: 10,
-          assistantMessages: 10,
-          toolCalls: 25,
-          toolResults: 25,
-          totalMessages: 40,
-          tokens: {
-            input: 120000,
-            output: 30000,
-            cacheRead: 5000,
-            cacheWrite: 2000,
-            total: 157000,
-          },
-          cost: 0.12,
-          contextUsage: {
-            tokens: 15000,
-            contextWindow: 128000,
-            percent: 11.72,
-          },
-          sessionFile: "/tmp/session.jsonl",
-          sessionId: "test-session",
-        }),
-      },
-    });
-
-    await bot.handleUpdate(createTestUpdate({ message: { text: "/context" } }));
-
-    const sentText = String(api.sendMessage.mock.calls[0]?.[1]);
-    expect(sentText).toContain("Context Usage");
-    expect(sentText).toContain("15,000");
-    expect(sentText).toContain("128,000");
-    expect(sentText).toContain("11.72%");
-    expect(sentText).toContain("Session Stats");
-    expect(sentText).toContain("10");
-    expect(sentText).toContain("user");
-    expect(sentText).toContain("25");
-    expect(sentText).toContain("$0.1200");
-  });
-
-  it("shows 'no active session' with /context when session is missing", async () => {
-    const { bot, api } = setupBot({
-      piSessionOverrides: {
-        hasActiveSession: vi.fn().mockReturnValue(false),
-        getContextUsage: vi.fn().mockReturnValue(undefined),
-        getSessionStats: vi.fn().mockReturnValue(undefined),
-      },
-    });
-
-    await bot.handleUpdate(createTestUpdate({ message: { text: "/context" } }));
-
-    const sentText = String(api.sendMessage.mock.calls[0]?.[1]);
-    expect(sentText).toContain("No active session");
-  });
+	beforeEach(() => {
+		vi.restoreAllMocks();
+		vi.clearAllMocks();
+		vi.unstubAllGlobals();
+		vi.mocked(getAvailableBackends).mockResolvedValue(["openai"]);
+		vi.mocked(transcribeAudio).mockResolvedValue({
+			text: "transcribed text",
+			backend: "openai",
+			durationMs: 500,
+		});
+		vi.mocked(readFile).mockResolvedValue(Buffer.from("image-bytes"));
+		vi.mocked(writeFile).mockResolvedValue(undefined);
+		vi.mocked(unlink).mockResolvedValue(undefined);
+		vi.stubGlobal(
+			"fetch",
+			vi.fn().mockResolvedValue({
+				ok: true,
+				arrayBuffer: () => Promise.resolve(new ArrayBuffer(100)),
+			}),
+		);
+	});
+
+	afterEach(() => {
+		vi.unstubAllGlobals();
+	});
+
+	it("starts prompt inbox polling when configured", () => {
+		setupBot({
+			configOverrides: {
+				promptInboxDir: "/tmp/telepi-inbox",
+				promptInboxIntervalMs: 15000,
+			},
+		});
+
+		expect(startPromptInboxPolling).toHaveBeenCalledWith(
+			expect.objectContaining({
+				inboxDir: "/tmp/telepi-inbox",
+				intervalMs: 15000,
+				target: { chatId: ALLOWED_USER_ID },
+			}),
+		);
+	});
+
+	it("stops prompt inbox polling when the bot stops", () => {
+		const stopPolling = vi.fn();
+		vi.mocked(startPromptInboxPolling).mockReturnValue(stopPolling);
+		const { bot } = setupBot({
+			configOverrides: {
+				promptInboxDir: "/tmp/telepi-inbox",
+			},
+		});
+
+		bot.stop();
+
+		expect(stopPolling).toHaveBeenCalledTimes(1);
+	});
+
+	it("allows authorized users through the middleware and handles /start", async () => {
+		const { bot, api } = setupBot();
+
+		await bot.handleUpdate(createTestUpdate({ message: { text: "/start" } }));
+
+		expect(api.sendMessage).toHaveBeenCalledTimes(1);
+		expect(api.sendMessage.mock.calls[0]?.[1]).toContain("TelePi is ready.");
+		expect(api.sendMessage.mock.calls[0]?.[1]).toContain("Session ID");
+	});
+
+	it("handles /help and /retry flows", async () => {
+		const { bot, pi, api } = setupBot();
+
+		await bot.handleUpdate(createTestUpdate({ message: { text: "/help" } }));
+		expect(api.sendMessage.mock.calls[0]?.[1]).toContain("/retry");
+		expect(api.sendMessage.mock.calls[0]?.[1]).toContain(
+			"Each Telegram chat/topic has its own Pi session",
+		);
+
+		api.sendMessage.mockClear();
+		await bot.handleUpdate(createTestUpdate({ message: { text: "/retry" } }));
+		expect(api.sendMessage.mock.calls[0]?.[1]).toContain(
+			"Nothing to retry yet",
+		);
+
+		const promptMock = pi.service.prompt as ReturnType<typeof vi.fn>;
+		promptMock.mockImplementation(async () => {
+			pi.emitTextDelta("Retried response");
+			pi.emitAgentEnd();
+		});
+
+		await bot.handleUpdate(createTestUpdate({ message: { text: "retry me" } }));
+		await bot.handleUpdate(createTestUpdate({ message: { text: "/retry" } }));
+
+		expect(pi.service.prompt).toHaveBeenNthCalledWith(1, "retry me");
+		expect(pi.service.prompt).toHaveBeenNthCalledWith(2, "retry me");
+	});
+
+	it("keeps /retry state isolated per topic", async () => {
+		const { bot, api } = setupBot();
+
+		await bot.handleUpdate(
+			createTestUpdate({
+				message: {
+					text: "topic one retry",
+					chat: { id: ALLOWED_CHAT_ID, type: "supergroup" },
+					message_thread_id: 101,
+				},
+			}),
+		);
+
+		api.sendMessage.mockClear();
+		await bot.handleUpdate(
+			createTestUpdate({
+				message: {
+					text: "/retry",
+					chat: { id: ALLOWED_CHAT_ID, type: "supergroup" },
+					message_thread_id: 202,
+				},
+			}),
+		);
+
+		expect(api.sendMessage.mock.calls[0]?.[1]).toContain(
+			"Nothing to retry yet in this chat/topic.",
+		);
+	});
+
+	it("clears /retry memory after creating a new session or switching sessions", async () => {
+		const fresh = setupBot({
+			piSessionOverrides: {
+				listWorkspaces: vi.fn().mockResolvedValue(["/workspace/A"]),
+			},
+		});
+		await fresh.bot.handleUpdate(
+			createTestUpdate({ message: { text: "retry me later" } }),
+		);
+		await fresh.bot.handleUpdate(
+			createTestUpdate({ message: { text: "/new" } }),
+		);
+
+		fresh.api.sendMessage.mockClear();
+		await fresh.bot.handleUpdate(
+			createTestUpdate({ message: { text: "/retry" } }),
+		);
+		expect(fresh.api.sendMessage.mock.calls[0]?.[1]).toContain(
+			"Nothing to retry yet",
+		);
+
+		const switched = setupBot();
+		await switched.bot.handleUpdate(
+			createTestUpdate({ message: { text: "switch clears retry" } }),
+		);
+		await switched.bot.handleUpdate(
+			createTestUpdate({ message: { text: "/sessions /saved/session.jsonl" } }),
+		);
+
+		switched.api.sendMessage.mockClear();
+		await switched.bot.handleUpdate(
+			createTestUpdate({ message: { text: "/retry" } }),
+		);
+		expect(switched.api.sendMessage.mock.calls[0]?.[1]).toContain(
+			"Nothing to retry yet",
+		);
+	});
+
+	it("can retry failed prompts and prompts started from voice transcription", async () => {
+		const failing = setupBot();
+		const failingPrompt = failing.pi.service.prompt as ReturnType<typeof vi.fn>;
+		failingPrompt
+			.mockRejectedValueOnce(new Error("boom"))
+			.mockResolvedValueOnce(undefined);
+
+		await failing.bot.handleUpdate(
+			createTestUpdate({ message: { text: "retry failed prompt" } }),
+		);
+		await failing.bot.handleUpdate(
+			createTestUpdate({ message: { text: "/retry" } }),
+		);
+
+		expect(failing.pi.service.prompt).toHaveBeenNthCalledWith(
+			1,
+			"retry failed prompt",
+		);
+		expect(failing.pi.service.prompt).toHaveBeenNthCalledWith(
+			2,
+			"retry failed prompt",
+		);
+
+		const voice = setupBot();
+		const voicePrompt = voice.pi.service.prompt as ReturnType<typeof vi.fn>;
+		voicePrompt.mockImplementation(async () => {
+			voice.pi.emitTextDelta("Voice response");
+			voice.pi.emitAgentEnd();
+		});
+
+		await voice.bot.handleUpdate(createVoiceUpdate());
+		await voice.bot.handleUpdate(
+			createTestUpdate({ message: { text: "/retry" } }),
+		);
+
+		expect(voice.pi.service.prompt).toHaveBeenNthCalledWith(
+			1,
+			"transcribed text",
+		);
+		expect(voice.pi.service.prompt).toHaveBeenNthCalledWith(
+			2,
+			"transcribed text",
+		);
+	});
+
+	it("rejects unauthorized message senders", async () => {
+		const { bot, api } = setupBot();
+
+		await bot.handleUpdate(
+			createTestUpdate({
+				message: { from: { id: 999, is_bot: false, first_name: "Eve" } },
+			}),
+		);
+
+		expect(api.sendMessage).toHaveBeenCalledTimes(1);
+		expect(api.sendMessage.mock.calls[0]?.[1]).toBe("Unauthorized");
+	});
+
+	it("rejects unauthorized callback queries without sending a chat message", async () => {
+		const { bot, api } = setupBot();
+
+		await bot.handleUpdate(
+			createCallbackUpdate("switch_0", {
+				callback_query: { from: { id: 999, is_bot: false, first_name: "Eve" } },
+			}),
+		);
+
+		expect(api.answerCallbackQuery).toHaveBeenCalledWith("cb_1", {
+			text: "Unauthorized",
+		});
+		expect(api.sendMessage).not.toHaveBeenCalled();
+	});
+
+	it("rejects unauthorized tree commands", async () => {
+		const { bot, api } = setupBot();
+
+		await bot.handleUpdate(
+			createTestUpdate({
+				message: {
+					text: "/tree",
+					from: { id: 999, is_bot: false, first_name: "Eve" },
+				},
+			}),
+		);
+
+		expect(api.sendMessage).toHaveBeenCalledTimes(1);
+		expect(api.sendMessage.mock.calls[0]?.[1]).toBe("Unauthorized");
+	});
+
+	it("handles /session", async () => {
+		const { bot, api } = setupBot();
+
+		await bot.handleUpdate(createTestUpdate({ message: { text: "/session" } }));
+
+		expect(api.sendMessage.mock.calls[0]?.[1]).toContain("Session ID");
+		expect(api.sendMessage.mock.calls[0]?.[1]).toContain("/tmp/test.jsonl");
+	});
+
+	it("shows fallback /session info for untouched contexts without creating a session", async () => {
+		const { bot, api, registry } = setupBot();
+
+		await bot.handleUpdate(
+			createTestUpdate({
+				message: {
+					text: "/session",
+					chat: { id: ALLOWED_CHAT_ID, type: "supergroup" },
+					message_thread_id: 909,
+				},
+			}),
+		);
+
+		expect(api.sendMessage.mock.calls[0]?.[1]).toContain("(no active session)");
+		expect(
+			registry.registry.getOrCreate as ReturnType<typeof vi.fn>,
+		).not.toHaveBeenCalledWith({
+			chatId: ALLOWED_CHAT_ID,
+			messageThreadId: 909,
+		});
+		expect(registry.getSession(ALLOWED_CHAT_ID, 909)).toBeUndefined();
+	});
+
+	it("handles /abort success and failure", async () => {
+		const ok = setupBot();
+		await ok.bot.handleUpdate(
+			createTestUpdate({ message: { text: "/abort" } }),
+		);
+		expect(ok.pi.service.abort).toHaveBeenCalledTimes(1);
+		expect(ok.api.sendMessage.mock.calls[0]?.[1]).toContain(
+			"Aborted current operation",
+		);
+
+		const failure = setupBot({
+			piSessionOverrides: {
+				abort: vi.fn().mockRejectedValue(new Error("abort failed")),
+			},
+		});
+		await failure.bot.handleUpdate(
+			createTestUpdate({ message: { text: "/abort" } }),
+		);
+		expect(failure.api.sendMessage.mock.calls[0]?.[1]).toContain("Failed:");
+		expect(failure.api.sendMessage.mock.calls[0]?.[1]).toContain(
+			"abort failed",
+		);
+	});
+
+	it("does not create a fresh session for /abort in an untouched context", async () => {
+		const { bot, api, registry } = setupBot();
+
+		await bot.handleUpdate(
+			createTestUpdate({
+				message: {
+					text: "/abort",
+					chat: { id: ALLOWED_CHAT_ID, type: "supergroup" },
+					message_thread_id: 910,
+				},
+			}),
+		);
+
+		expect(api.sendMessage.mock.calls[0]?.[1]).toContain(
+			"No active session to abort.",
+		);
+		expect(
+			registry.registry.getOrCreate as ReturnType<typeof vi.fn>,
+		).not.toHaveBeenCalledWith({
+			chatId: ALLOWED_CHAT_ID,
+			messageThreadId: 910,
+		});
+		expect(registry.getSession(ALLOWED_CHAT_ID, 910)).toBeUndefined();
+	});
+
+	it("shows a compact session picker with inline switch buttons", async () => {
+		const { bot, api } = setupBot();
+
+		await bot.handleUpdate(
+			createTestUpdate({ message: { text: "/sessions" } }),
+		);
+
+		expect(api.sendMessage.mock.calls[0]?.[1]).toContain(
+			"Select a session to switch",
+		);
+		expect(api.sendMessage.mock.calls[0]?.[1]).toContain("(2 found)");
+		expect(api.sendMessage.mock.calls[0]?.[1]).not.toContain("📁 A");
+		expect(api.sendMessage.mock.calls[0]?.[1]).not.toContain("📁 B");
+		expect(
+			getReplyMarkupButtons(api)
+				.slice(0, 2)
+				.map((button) => button.text),
+		).toEqual(["📁 A · Hello session", "📁 B · World session"]);
+		expect(getReplyMarkupData(api)).toEqual(["switch_0", "switch_1"]);
+	});
+
+	it("paginates session pickers and keeps selections working across pages", async () => {
+		const sessions = generateMockSessions(8).map((session) => ({
+			...session,
+			cwd: "/workspace/A",
+		}));
+		const { bot, pi, api } = setupBot({
+			piSessionOverrides: {
+				listAllSessions: vi.fn().mockResolvedValue(sessions),
+			},
+		});
+
+		await bot.handleUpdate(
+			createTestUpdate({ message: { text: "/sessions" } }),
+		);
+
+		expect(getReplyMarkupData(api)).toEqual([
+			"switch_0",
+			"switch_1",
+			"switch_2",
+			"switch_3",
+			"switch_4",
+			"switch_5",
+			"noop_page",
+			"switch_page_1",
+		]);
+		expect(getReplyMarkupButtons(api).at(-2)?.text).toBe("1/2");
+		expect(getReplyMarkupButtons(api).at(-1)?.text).toBe("Next ▶️");
+
+		await bot.handleUpdate(createCallbackUpdate("switch_page_1"));
+		expect(api.answerCallbackQuery).toHaveBeenCalledWith("cb_1", {
+			text: undefined,
+		});
+		expect(
+			getEditedReplyMarkupButtons(api).map((button) => button.callback_data),
+		).toEqual(["switch_6", "switch_7", "switch_page_0", "noop_page"]);
+
+		await bot.handleUpdate(createCallbackUpdate("switch_7"));
+		expect(pi.service.switchSession).toHaveBeenCalledWith(
+			"/s7.jsonl",
+			"/workspace/A",
+		);
+	});
+
+	it("routes session pickers and prompts per topic", async () => {
+		const topicOneKey = makeContextKey(ALLOWED_CHAT_ID, 101);
+		const topicTwoKey = makeContextKey(ALLOWED_CHAT_ID, 202);
+		const { bot, api, registry } = setupBot({
+			perContextSessionOverrides: {
+				[topicOneKey]: {
+					listAllSessions: vi.fn().mockResolvedValue([
+						{
+							id: "topic-1",
+							firstMessage: "Topic one",
+							path: "/topic-one.jsonl",
+							messageCount: 2,
+							cwd: "/workspace/topic-one",
+							modified: new Date("2025-01-02T00:00:00.000Z"),
+							name: undefined,
+						},
+					]),
+				},
+				[topicTwoKey]: {
+					listAllSessions: vi.fn().mockResolvedValue([
+						{
+							id: "topic-2",
+							firstMessage: "Topic two",
+							path: "/topic-two.jsonl",
+							messageCount: 4,
+							cwd: "/workspace/topic-two",
+							modified: new Date("2025-01-03T00:00:00.000Z"),
+							name: undefined,
+						},
+					]),
+				},
+			},
+		});
+
+		await bot.handleUpdate(
+			createTestUpdate({
+				message: {
+					text: "/sessions",
+					chat: { id: ALLOWED_CHAT_ID, type: "supergroup" },
+					message_thread_id: 101,
+				},
+			}),
+		);
+		await bot.handleUpdate(
+			createTestUpdate({
+				message: {
+					text: "/sessions",
+					chat: { id: ALLOWED_CHAT_ID, type: "supergroup" },
+					message_thread_id: 202,
+				},
+			}),
+		);
+
+		expect(api.sendMessage.mock.calls[0]?.[2]?.message_thread_id).toBe(101);
+		expect(api.sendMessage.mock.calls[1]?.[2]?.message_thread_id).toBe(202);
+
+		await bot.handleUpdate(
+			createCallbackUpdate("switch_0", {
+				callback_query: {
+					message: {
+						chat: { id: ALLOWED_CHAT_ID, type: "supergroup" },
+						message_thread_id: 101,
+					},
+				},
+			}),
+		);
+		await bot.handleUpdate(
+			createCallbackUpdate("switch_0", {
+				callback_query: {
+					message: {
+						chat: { id: ALLOWED_CHAT_ID, type: "supergroup" },
+						message_thread_id: 202,
+					},
+				},
+			}),
+		);
+
+		expect(
+			registry.getSession(ALLOWED_CHAT_ID, 101)?.service.switchSession,
+		).toHaveBeenCalledWith("/topic-one.jsonl", "/workspace/topic-one");
+		expect(
+			registry.getSession(ALLOWED_CHAT_ID, 202)?.service.switchSession,
+		).toHaveBeenCalledWith("/topic-two.jsonl", "/workspace/topic-two");
+
+		const topicOneSession = registry.getSession(ALLOWED_CHAT_ID, 101)!;
+		const promptMock = topicOneSession.service.prompt as ReturnType<
+			typeof vi.fn
+		>;
+		promptMock.mockImplementation(async () => {
+			topicOneSession.emitTextDelta("Topic response");
+			topicOneSession.emitAgentEnd();
+		});
+
+		await bot.handleUpdate(
+			createTestUpdate({
+				message: {
+					text: "topic prompt",
+					chat: { id: ALLOWED_CHAT_ID, type: "supergroup" },
+					message_thread_id: 101,
+				},
+			}),
+		);
+
+		expect(api.sendChatAction).toHaveBeenCalledWith(
+			ALLOWED_CHAT_ID,
+			"typing",
+			101,
+		);
+	});
+
+	it("allows independent topics to process prompts concurrently", async () => {
+		let resolveTopicOne!: () => void;
+		const { bot, api, registry } = setupBot({
+			perContextSessionOverrides: {
+				[makeContextKey(ALLOWED_CHAT_ID, 101)]: {
+					prompt: vi.fn().mockImplementation(
+						() =>
+							new Promise<void>((resolve) => {
+								resolveTopicOne = resolve;
+							}),
+					),
+				},
+				[makeContextKey(ALLOWED_CHAT_ID, 202)]: {
+					prompt: vi.fn().mockResolvedValue(undefined),
+				},
+			},
+		});
+
+		const topicOnePending = bot.handleUpdate(
+			createTestUpdate({
+				message: {
+					text: "topic one prompt",
+					chat: { id: ALLOWED_CHAT_ID, type: "supergroup" },
+					message_thread_id: 101,
+				},
+			}),
+		);
+		await nextTick();
+
+		await bot.handleUpdate(
+			createTestUpdate({
+				message: {
+					text: "topic two prompt",
+					chat: { id: ALLOWED_CHAT_ID, type: "supergroup" },
+					message_thread_id: 202,
+				},
+			}),
+		);
+
+		expect(
+			registry.getSession(ALLOWED_CHAT_ID, 202)?.service.prompt,
+		).toHaveBeenCalledWith("topic two prompt");
+		expect(
+			api.sendMessage.mock.calls.some((call) =>
+				String(call[1]).includes("Still working on previous message..."),
+			),
+		).toBe(false);
+
+		resolveTopicOne();
+		await topicOnePending;
+	});
+
+	it("switches directly via /sessions and /switch aliases and shows errors when switching fails", async () => {
+		const ok = setupBot();
+		await ok.bot.handleUpdate(
+			createTestUpdate({ message: { text: "/sessions /saved/session.jsonl" } }),
+		);
+		expect(ok.pi.service.resolveSessionReference).toHaveBeenCalledWith(
+			"/saved/session.jsonl",
+		);
+		expect(ok.pi.service.switchSession).toHaveBeenCalledWith(
+			"/saved/session.jsonl",
+			"/workspace/A",
+		);
+		expect(ok.api.sendMessage.mock.calls[0]?.[1]).toContain("Switched session");
+
+		const alias = setupBot();
+		await alias.bot.handleUpdate(
+			createTestUpdate({ message: { text: "/switch /saved/session.jsonl" } }),
+		);
+		expect(alias.pi.service.resolveSessionReference).toHaveBeenCalledWith(
+			"/saved/session.jsonl",
+		);
+		expect(alias.pi.service.switchSession).toHaveBeenCalledWith(
+			"/saved/session.jsonl",
+			"/workspace/A",
+		);
+		expect(alias.api.sendMessage.mock.calls[0]?.[1]).toContain(
+			"Switched session",
+		);
+
+		const cancelled = setupBot({
+			piSessionOverrides: {
+				switchSession: vi.fn().mockResolvedValue({
+					sessionId: "test-id",
+					sessionFile: "/tmp/test.jsonl",
+					workspace: "/workspace",
+					model: "anthropic/claude-sonnet-4-5",
+					cancelled: true,
+				}),
+			},
+		});
+		await cancelled.bot.handleUpdate(
+			createTestUpdate({ message: { text: "/sessions /saved/session.jsonl" } }),
+		);
+		expect(cancelled.api.sendMessage.mock.calls[0]?.[1]).toContain(
+			"Session switch was cancelled.",
+		);
+
+		const byId = setupBot({
+			piSessionOverrides: {
+				resolveSessionReference: vi.fn().mockResolvedValue({
+					id: "s1",
+					path: "/saved/session.jsonl",
+					cwd: "/workspace/A",
+					matchType: "prefix",
+				}),
+			},
+		});
+		await byId.bot.handleUpdate(
+			createTestUpdate({ message: { text: "/sessions s1" } }),
+		);
+		expect(byId.pi.service.resolveSessionReference).toHaveBeenCalledWith("s1");
+		expect(byId.pi.service.switchSession).toHaveBeenCalledWith(
+			"/saved/session.jsonl",
+			"/workspace/A",
+		);
+
+		const failure = setupBot({
+			piSessionOverrides: {
+				resolveSessionReference: vi
+					.fn()
+					.mockRejectedValue(new Error("ambiguous session id")),
+			},
+		});
+		await failure.bot.handleUpdate(
+			createTestUpdate({ message: { text: "/sessions deadbeef" } }),
+		);
+		expect(failure.api.sendMessage.mock.calls[0]?.[1]).toContain("Failed:");
+		expect(failure.api.sendMessage.mock.calls[0]?.[1]).toContain(
+			"ambiguous session id",
+		);
+	});
+
+	it("handles switch callbacks, expired picks, and wait states", async () => {
+		const ready = setupBot();
+		await ready.bot.handleUpdate(
+			createTestUpdate({ message: { text: "/sessions" } }),
+		);
+		await ready.bot.handleUpdate(createCallbackUpdate("switch_1"));
+
+		expect(ready.api.answerCallbackQuery).toHaveBeenCalledWith("cb_1", {
+			text: "Switching...",
+		});
+		expect(ready.pi.service.resolveSessionReference).toHaveBeenCalledWith(
+			"/s2.jsonl",
+		);
+		expect(ready.pi.service.switchSession).toHaveBeenCalledWith(
+			"/s2.jsonl",
+			"/workspace/B",
+		);
+		expect(ready.api.editMessageText).toHaveBeenCalled();
+
+		const cancelled = setupBot({
+			piSessionOverrides: {
+				switchSession: vi.fn().mockResolvedValue({
+					sessionId: "test-id",
+					sessionFile: "/tmp/test.jsonl",
+					workspace: "/workspace",
+					model: "anthropic/claude-sonnet-4-5",
+					cancelled: true,
+				}),
+			},
+		});
+		await cancelled.bot.handleUpdate(
+			createTestUpdate({ message: { text: "/sessions" } }),
+		);
+		await cancelled.bot.handleUpdate(createCallbackUpdate("switch_0"));
+		expect(cancelled.api.editMessageText.mock.calls.at(-1)?.[2]).toContain(
+			"Session switch was cancelled.",
+		);
+
+		const expired = setupBot();
+		await expired.bot.handleUpdate(createCallbackUpdate("switch_0"));
+		expect(expired.api.answerCallbackQuery).toHaveBeenCalledWith("cb_1", {
+			text: "Session expired, run /sessions again",
+		});
+
+		let resolvePrompt!: () => void;
+		const waiting = setupBot({
+			piSessionOverrides: {
+				prompt: vi.fn().mockImplementation(
+					() =>
+						new Promise<void>((resolve) => {
+							resolvePrompt = resolve;
+						}),
+				),
+			},
+		});
+		await waiting.bot.handleUpdate(
+			createTestUpdate({ message: { text: "/sessions" } }),
+		);
+		const firstPrompt = waiting.bot.handleUpdate(
+			createTestUpdate({ message: { text: "hello" } }),
+		);
+		await nextTick();
+		await waiting.bot.handleUpdate(createCallbackUpdate("switch_0"));
+
+		expect(waiting.api.answerCallbackQuery).toHaveBeenCalledWith("cb_1", {
+			text: "Wait for the current prompt to finish",
+		});
+
+		resolvePrompt();
+		await firstPrompt;
+	});
+
+	it("surfaces startup diagnostics after successful direct session switches", async () => {
+		const { bot, api } = setupBot({
+			piSessionOverrides: {
+				switchSession: vi.fn().mockResolvedValue({
+					sessionId: "switched-id",
+					sessionFile: "/tmp/switched.jsonl",
+					workspace: "/workspace/B",
+					model: "anthropic/claude-sonnet-4-5",
+					diagnostics: [
+						{
+							type: "error",
+							message: "Extension issue (/ext/rebound.ts): startup failed",
+						},
+					],
+					cancelled: false,
+				}),
+			},
+		});
+
+		await bot.handleUpdate(
+			createTestUpdate({ message: { text: "/sessions /saved/session.jsonl" } }),
+		);
+
+		const startupMessages = api.sendMessage.mock.calls
+			.map((call) => String(call[1]))
+			.filter((text) => text.includes("Session startup issues"));
+		expect(startupMessages).toHaveLength(1);
+		expect(startupMessages[0]).toContain(
+			"Extension issue (/ext/rebound.ts): startup failed",
+		);
+	});
+
+	it("surfaces startup diagnostics after successful switch callbacks", async () => {
+		const { bot, api } = setupBot({
+			piSessionOverrides: {
+				switchSession: vi.fn().mockResolvedValue({
+					sessionId: "switched-id",
+					sessionFile: "/tmp/switched.jsonl",
+					workspace: "/workspace/B",
+					model: "anthropic/claude-sonnet-4-5",
+					diagnostics: [
+						{
+							type: "error",
+							message: "Prompt issue (/prompts/deploy.md): invalid frontmatter",
+						},
+					],
+					cancelled: false,
+				}),
+			},
+		});
+
+		await bot.handleUpdate(
+			createTestUpdate({ message: { text: "/sessions" } }),
+		);
+		await bot.handleUpdate(createCallbackUpdate("switch_1"));
+
+		expect(api.editMessageText).toHaveBeenCalled();
+		const startupMessages = api.sendMessage.mock.calls
+			.map((call) => String(call[1]))
+			.filter((text) => text.includes("Session startup issues"));
+		expect(startupMessages).toHaveLength(1);
+		expect(startupMessages[0]).toContain(
+			"Prompt issue (/prompts/deploy.md): invalid frontmatter",
+		);
+	});
+
+	it("shows a workspace picker for /new and creates directly when only one workspace exists", async () => {
+		const picker = setupBot();
+		await picker.bot.handleUpdate(
+			createTestUpdate({ message: { text: "/new" } }),
+		);
+		expect(picker.api.sendMessage.mock.calls[0]?.[1]).toContain(
+			"Select workspace for new session",
+		);
+		expect(getReplyMarkupData(picker.api)).toEqual(["newws_0", "newws_1"]);
+
+		const single = setupBot({
+			piSessionOverrides: {
+				listWorkspaces: vi.fn().mockResolvedValue(["/workspace/A"]),
+			},
+		});
+		await single.bot.handleUpdate(
+			createTestUpdate({ message: { text: "/new" } }),
+		);
+		expect(single.pi.service.newSession).toHaveBeenCalledWith();
+		expect(single.api.sendMessage.mock.calls[0]?.[1]).toContain(
+			"New session created.",
+		);
+	});
+
+	it("surfaces startup diagnostics after successful direct /new session creation", async () => {
+		const { bot, api } = setupBot({
+			piSessionOverrides: {
+				listWorkspaces: vi.fn().mockResolvedValue(["/workspace/A"]),
+				newSession: vi.fn().mockResolvedValue({
+					info: {
+						sessionId: "new-id",
+						sessionFile: "/tmp/new.jsonl",
+						workspace: "/workspace/A",
+						model: "anthropic/claude-sonnet-4-5",
+						diagnostics: [
+							{
+								type: "error",
+								message: "Extension issue (/ext/new.ts): startup failed",
+							},
+						],
+					},
+					created: true,
+				}),
+			},
+		});
+
+		await bot.handleUpdate(createTestUpdate({ message: { text: "/new" } }));
+
+		const startupMessages = api.sendMessage.mock.calls
+			.map((call) => String(call[1]))
+			.filter((text) => text.includes("Session startup issues"));
+		expect(startupMessages).toHaveLength(1);
+		expect(startupMessages[0]).toContain(
+			"Extension issue (/ext/new.ts): startup failed",
+		);
+	});
+
+	it("handles new workspace selection callbacks", async () => {
+		const { bot, pi, api } = setupBot();
+
+		await bot.handleUpdate(createTestUpdate({ message: { text: "/new" } }));
+		await bot.handleUpdate(createCallbackUpdate("newws_1"));
+
+		expect(api.answerCallbackQuery).toHaveBeenCalledWith("cb_1", {
+			text: "Creating session...",
+		});
+		expect(pi.service.newSession).toHaveBeenCalledWith("/workspace/B");
+		expect(api.editMessageText).toHaveBeenCalled();
+	});
+
+	it("surfaces startup diagnostics after successful workspace-picker session creation", async () => {
+		const { bot, api } = setupBot({
+			piSessionOverrides: {
+				newSession: vi.fn().mockResolvedValue({
+					info: {
+						sessionId: "new-id",
+						sessionFile: "/tmp/new.jsonl",
+						workspace: "/workspace/B",
+						model: "anthropic/claude-sonnet-4-5",
+						diagnostics: [
+							{
+								type: "error",
+								message: "Prompt issue (/prompts/new.md): invalid frontmatter",
+							},
+						],
+					},
+					created: true,
+				}),
+			},
+		});
+
+		await bot.handleUpdate(createTestUpdate({ message: { text: "/new" } }));
+		await bot.handleUpdate(createCallbackUpdate("newws_1"));
+
+		expect(api.editMessageText).toHaveBeenCalled();
+		const startupMessages = api.sendMessage.mock.calls
+			.map((call) => String(call[1]))
+			.filter((text) => text.includes("Session startup issues"));
+		expect(startupMessages).toHaveLength(1);
+		expect(startupMessages[0]).toContain(
+			"Prompt issue (/prompts/new.md): invalid frontmatter",
+		);
+	});
+
+	it("paginates workspace pickers and creates the selected workspace session", async () => {
+		const workspaces = generateMockWorkspaces(8);
+		const { bot, pi, api } = setupBot({
+			piSessionOverrides: {
+				listWorkspaces: vi.fn().mockResolvedValue(workspaces),
+			},
+		});
+
+		await bot.handleUpdate(createTestUpdate({ message: { text: "/new" } }));
+		expect(getReplyMarkupData(api)).toEqual([
+			"newws_0",
+			"newws_1",
+			"newws_2",
+			"newws_3",
+			"newws_4",
+			"newws_5",
+			"noop_page",
+			"newws_page_1",
+		]);
+
+		await bot.handleUpdate(createCallbackUpdate("newws_page_1"));
+		expect(
+			getEditedReplyMarkupButtons(api).map((button) => button.callback_data),
+		).toEqual(["newws_6", "newws_7", "newws_page_0", "noop_page"]);
+
+		await bot.handleUpdate(createCallbackUpdate("newws_7"));
+		expect(pi.service.newSession).toHaveBeenCalledWith("/workspace/W7");
+	});
+
+	it("handles /handback and blocks it when unavailable or busy", async () => {
+		const ok = setupBot();
+		await ok.bot.handleUpdate(
+			createTestUpdate({ message: { text: "/handback" } }),
+		);
+		expect(ok.pi.service.handback).toHaveBeenCalledTimes(1);
+		expect(ok.api.sendMessage.mock.calls[0]?.[1]).toContain("pi --session");
+		expect(ok.api.sendMessage.mock.calls[0]?.[1]).toContain("pi -c");
+		expect(
+			ok.registry.registry.remove as ReturnType<typeof vi.fn>,
+		).toHaveBeenCalledWith({
+			chatId: ALLOWED_CHAT_ID,
+		});
+
+		const noActive = setupBot({
+			piSessionOverrides: {
+				hasActiveSession: vi.fn().mockReturnValue(false),
+			},
+		});
+		await noActive.bot.handleUpdate(
+			createTestUpdate({ message: { text: "/handback" } }),
+		);
+		expect(noActive.api.sendMessage.mock.calls[0]?.[1]).toContain(
+			"No active session to hand back.",
+		);
+
+		let resolvePrompt!: () => void;
+		const busy = setupBot({
+			piSessionOverrides: {
+				prompt: vi.fn().mockImplementation(
+					() =>
+						new Promise<void>((resolve) => {
+							resolvePrompt = resolve;
+						}),
+				),
+			},
+		});
+		const pending = busy.bot.handleUpdate(
+			createTestUpdate({ message: { text: "hello" } }),
+		);
+		await nextTick();
+		await busy.bot.handleUpdate(
+			createTestUpdate({ message: { text: "/handback" } }),
+		);
+
+		expect(busy.api.sendMessage.mock.calls.at(-1)?.[1]).toContain(
+			"Cannot hand back while a prompt is running. Use /abort first.",
+		);
+
+		resolvePrompt();
+		await pending;
+	});
+
+	it("shows scoped models by default, can expand to all models, and handles model selection", async () => {
+		const scopedModels = [
+			{
+				provider: "github-copilot",
+				id: "codex",
+				name: "Codex",
+				current: true,
+				thinkingLevel: "high",
+			},
+		];
+		const allModels = [
+			{
+				provider: "openai",
+				id: "codex",
+				name: "Codex",
+				current: false,
+			},
+			...scopedModels,
+		];
+		const listModels = vi
+			.fn()
+			.mockImplementation((showAll?: boolean) =>
+				Promise.resolve(showAll ? allModels : scopedModels),
+			);
+
+		const { bot, pi, api } = setupBot({
+			piSessionOverrides: {
+				listModels,
+				setModel: vi.fn().mockResolvedValue("openai/codex"),
+			},
+		});
+
+		await bot.handleUpdate(createTestUpdate({ message: { text: "/model" } }));
+		expect(api.sendMessage.mock.calls[0]?.[1]).toContain("Select a model");
+		expect(api.sendMessage.mock.calls[0]?.[1]).toContain(
+			"Showing the current Pi model scope.",
+		);
+		expect(getReplyMarkupData(api)).toEqual(["model_0", "model_show_all"]);
+		expect(getReplyMarkupTexts(api)).toEqual([
+			"✅ github-copilot/codex · Codex : high",
+			"Show all models",
+		]);
+		expect(listModels).toHaveBeenNthCalledWith(1, false);
+		expect(listModels).toHaveBeenNthCalledWith(2, true);
+
+		await bot.handleUpdate(createCallbackUpdate("model_show_all"));
+		expect(api.answerCallbackQuery).toHaveBeenCalledWith("cb_1", {
+			text: "Loading all models...",
+		});
+		expect(getEditedReplyMarkupData(api)).toEqual(["model_0", "model_1"]);
+		expect(getEditedReplyMarkupTexts(api)).toEqual([
+			"openai/codex · Codex",
+			"✅ github-copilot/codex · Codex : high",
+		]);
+
+		await bot.handleUpdate(createCallbackUpdate("model_0"));
+		expect(api.answerCallbackQuery).toHaveBeenCalledWith("cb_1", {
+			text: "Switching model...",
+		});
+		expect(pi.service.setModel).toHaveBeenCalledWith(
+			"openai",
+			"codex",
+			undefined,
+		);
+		expect(api.editMessageText).toHaveBeenCalled();
+	});
+
+	it("applies the scoped thinking-level override when selecting a scoped model", async () => {
+		const { bot, pi } = setupBot({
+			piSessionOverrides: {
+				listModels: vi.fn().mockResolvedValue([
+					{
+						provider: "github-copilot",
+						id: "codex",
+						name: "Codex",
+						current: true,
+						thinkingLevel: "high",
+					},
+				]),
+				setModel: vi.fn().mockResolvedValue("github-copilot/codex"),
+			},
+		});
+
+		await bot.handleUpdate(createTestUpdate({ message: { text: "/model" } }));
+		await bot.handleUpdate(createCallbackUpdate("model_0"));
+
+		expect(pi.service.setModel).toHaveBeenCalledWith(
+			"github-copilot",
+			"codex",
+			"high",
+		);
+	});
+
+	it("keeps the show-all button while paging through scoped models", async () => {
+		const scopedModels = Array.from({ length: 7 }, (_, index) => ({
+			provider: "github-copilot",
+			id: `codex-${index}`,
+			name: `Codex ${index}`,
+			current: index === 0,
+		}));
+		const allModels = [
+			...Array.from({ length: 2 }, (_, index) => ({
+				provider: "openai",
+				id: `gpt-${index}`,
+				name: `GPT ${index}`,
+				current: false,
+			})),
+			...scopedModels,
+		];
+		const listModels = vi
+			.fn()
+			.mockImplementation((showAll?: boolean) =>
+				Promise.resolve(showAll ? allModels : scopedModels),
+			);
+
+		const { bot, api } = setupBot({
+			piSessionOverrides: {
+				listModels,
+			},
+		});
+
+		await bot.handleUpdate(createTestUpdate({ message: { text: "/model" } }));
+		expect(getReplyMarkupData(api)).toEqual([
+			"model_0",
+			"model_1",
+			"model_2",
+			"model_3",
+			"model_4",
+			"model_5",
+			"noop_page",
+			"model_page_1",
+			"model_show_all",
+		]);
+
+		await bot.handleUpdate(createCallbackUpdate("model_page_1"));
+		expect(
+			getEditedReplyMarkupButtons(api).map((button) => button.callback_data),
+		).toEqual(["model_6", "model_page_0", "noop_page", "model_show_all"]);
+	});
+
+	it("paginates model pickers across all available models", async () => {
+		const models = generateMockModels(21);
+		const { bot, pi, api } = setupBot({
+			piSessionOverrides: {
+				listModels: vi
+					.fn()
+					.mockImplementation((showAll?: boolean) =>
+						Promise.resolve(showAll ? models : models),
+					),
+			},
+		});
+
+		await bot.handleUpdate(createTestUpdate({ message: { text: "/model" } }));
+		expect(getReplyMarkupData(api)).toEqual([
+			"model_0",
+			"model_1",
+			"model_2",
+			"model_3",
+			"model_4",
+			"model_5",
+			"noop_page",
+			"model_page_1",
+		]);
+
+		await bot.handleUpdate(createCallbackUpdate("model_page_3"));
+		expect(
+			getEditedReplyMarkupButtons(api).map((button) => button.callback_data),
+		).toEqual([
+			"model_18",
+			"model_19",
+			"model_20",
+			"model_page_2",
+			"noop_page",
+		]);
+
+		await bot.handleUpdate(createCallbackUpdate("model_20"));
+		expect(pi.service.setModel).toHaveBeenCalledWith(
+			"provider20",
+			"model-20",
+			undefined,
+		);
+	});
+
+	it("handles /tree command variants and missing sessions", async () => {
+		const empty = setupBot({
+			piSessionOverrides: {
+				getTree: vi.fn().mockReturnValue([]),
+			},
+		});
+		await empty.bot.handleUpdate(
+			createTestUpdate({ message: { text: "/tree" } }),
+		);
+		expect(empty.api.sendMessage.mock.calls[0]?.[1]).toContain(
+			"Session tree is empty.",
+		);
+
+		const branched = setupBot();
+		await branched.bot.handleUpdate(
+			createTestUpdate({ message: { text: "/tree" } }),
+		);
+		expect(branched.api.sendMessage.mock.calls[0]?.[1]).toContain("Start");
+		expect(getReplyMarkupData(branched.api)).toContain("tree_nav_branch111");
+		expect(getReplyMarkupData(branched.api)).toContain("tree_nav_leaf5678");
+
+		const userMode = setupBot();
+		await userMode.bot.handleUpdate(
+			createTestUpdate({ message: { text: "/tree user" } }),
+		);
+		expect(userMode.api.sendMessage.mock.calls[0]?.[1]).toContain(
+			"Filter: user messages only.",
+		);
+
+		const allMode = setupBot();
+		await allMode.bot.handleUpdate(
+			createTestUpdate({ message: { text: "/tree all" } }),
+		);
+		expect(allMode.api.sendMessage.mock.calls[0]?.[1]).toContain(
+			"Filter: all entries with navigation buttons.",
+		);
+
+		const noActive = setupBot({
+			piSessionOverrides: {
+				hasActiveSession: vi.fn().mockReturnValue(false),
+			},
+		});
+		await noActive.bot.handleUpdate(
+			createTestUpdate({ message: { text: "/tree" } }),
+		);
+		expect(noActive.api.sendMessage.mock.calls[0]?.[1]).toContain(
+			"No active session",
+		);
+	});
+
+	it("paginates tree navigation buttons while keeping filter buttons visible", async () => {
+		const tree = generatePagedTree(8);
+		const { bot, api } = setupBot({
+			piSessionOverrides: {
+				getTree: vi.fn().mockReturnValue(tree),
+				getLeafId: vi.fn().mockReturnValue("node0001"),
+			},
+		});
+
+		await bot.handleUpdate(createTestUpdate({ message: { text: "/tree" } }));
+		expect(api.sendMessage.mock.calls[0]?.[1]).toContain("Page 1/2");
+		expect(getReplyMarkupData(api)).toEqual([
+			"tree_nav_root0000",
+			"tree_nav_node0002",
+			"tree_nav_node0003",
+			"tree_nav_node0004",
+			"tree_nav_node0005",
+			"tree_nav_node0006",
+			"noop_page",
+			"tree_page_1",
+			"tree_mode_all",
+			"tree_mode_user",
+		]);
+
+		await bot.handleUpdate(createCallbackUpdate("tree_page_1"));
+		expect(api.editMessageText.mock.calls[0]?.[2]).toContain("Page 2/2");
+		expect(
+			getEditedReplyMarkupButtons(api).map((button) => button.callback_data),
+		).toEqual([
+			"tree_nav_node0007",
+			"tree_page_0",
+			"noop_page",
+			"tree_mode_all",
+			"tree_mode_user",
+		]);
+	});
+
+	it("keeps the selected tree mode when paging", async () => {
+		const tree = generatePagedTree(8);
+		const { bot, api } = setupBot({
+			piSessionOverrides: {
+				getTree: vi.fn().mockReturnValue(tree),
+				getLeafId: vi.fn().mockReturnValue("node0001"),
+			},
+		});
+
+		await bot.handleUpdate(
+			createTestUpdate({ message: { text: "/tree all" } }),
+		);
+		expect(api.sendMessage.mock.calls[0]?.[1]).toContain(
+			"Filter: all entries with navigation buttons.",
+		);
+		expect(getReplyMarkupData(api)).toEqual([
+			"tree_nav_root0000",
+			"tree_nav_node0001",
+			"tree_nav_node0002",
+			"tree_nav_node0003",
+			"tree_nav_node0004",
+			"tree_nav_node0005",
+			"noop_page",
+			"tree_page_1",
+			"tree_mode_default",
+			"tree_mode_user",
+		]);
+
+		await bot.handleUpdate(createCallbackUpdate("tree_page_1"));
+		expect(api.editMessageText.mock.calls[0]?.[2]).toContain(
+			"Filter: all entries with navigation buttons.",
+		);
+		expect(
+			getEditedReplyMarkupButtons(api).map((button) => button.callback_data),
+		).toEqual([
+			"tree_nav_node0006",
+			"tree_nav_node0007",
+			"tree_page_0",
+			"noop_page",
+			"tree_mode_default",
+			"tree_mode_user",
+		]);
+	});
+
+	it("handles /branch command success and validation", async () => {
+		const usage = setupBot();
+		await usage.bot.handleUpdate(
+			createTestUpdate({ message: { text: "/branch" } }),
+		);
+		expect(usage.api.sendMessage.mock.calls[0]?.[1]).toContain(
+			"Usage: /branch &lt;entry-id&gt;",
+		);
+
+		const missing = setupBot();
+		await missing.bot.handleUpdate(
+			createTestUpdate({ message: { text: "/branch missing" } }),
+		);
+		expect(missing.api.sendMessage.mock.calls[0]?.[1]).toContain(
+			"Entry not found: missing",
+		);
+
+		const sameLeaf = setupBot();
+		await sameLeaf.bot.handleUpdate(
+			createTestUpdate({ message: { text: "/branch leaf1234" } }),
+		);
+		expect(sameLeaf.api.sendMessage.mock.calls[0]?.[1]).toContain(
+			"already at this point",
+		);
+
+		const ok = setupBot();
+		await ok.bot.handleUpdate(
+			createTestUpdate({ message: { text: "/branch branch111" } }),
+		);
+		expect(ok.api.sendMessage.mock.calls[0]?.[1]).toContain(
+			"Navigate to this point?",
+		);
+		expect(getReplyMarkupData(ok.api)).toEqual([
+			"tree_go_branch111",
+			"tree_sum_branch111",
+			"tree_cancel",
+		]);
+	});
+
+	it("handles /label command flows", async () => {
+		const show = setupBot();
+		await show.bot.handleUpdate(
+			createTestUpdate({ message: { text: "/label" } }),
+		);
+		expect(show.api.sendMessage.mock.calls[0]?.[1]).toContain("saved");
+
+		const current = setupBot();
+		await current.bot.handleUpdate(
+			createTestUpdate({ message: { text: "/label checkpoint" } }),
+		);
+		expect(current.pi.service.setLabel).toHaveBeenCalledWith(
+			"leaf1234",
+			"checkpoint",
+		);
+		expect(current.api.sendMessage.mock.calls[0]?.[1]).toContain(
+			"current leaf",
+		);
+
+		const specific = setupBot();
+		await specific.bot.handleUpdate(
+			createTestUpdate({ message: { text: "/label branch111 origin" } }),
+		);
+		expect(specific.pi.service.setLabel).toHaveBeenCalledWith(
+			"branch111",
+			"origin",
+		);
+		expect(specific.api.sendMessage.mock.calls[0]?.[1]).toContain("set on");
+
+		const clear = setupBot();
+		await clear.bot.handleUpdate(
+			createTestUpdate({ message: { text: "/label clear branch111" } }),
+		);
+		expect(clear.pi.service.setLabel).toHaveBeenCalledWith("branch111", "");
+		expect(clear.api.sendMessage.mock.calls[0]?.[1]).toContain("Label cleared");
+
+		const unknown = setupBot({
+			piSessionOverrides: {
+				getEntry: vi.fn().mockReturnValue(undefined),
+			},
+		});
+		await unknown.bot.handleUpdate(
+			createTestUpdate({ message: { text: "/label clear nope" } }),
+		);
+		expect(unknown.api.sendMessage.mock.calls[0]?.[1]).toContain(
+			"Entry not found: nope",
+		);
+	});
+
+	it("handles tree callback queries", async () => {
+		const nav = setupBot();
+		await nav.bot.handleUpdate(createCallbackUpdate("tree_nav_branch111"));
+		expect(nav.api.answerCallbackQuery).toHaveBeenCalledWith("cb_1", {
+			text: "Loading...",
+		});
+		expect(nav.api.editMessageText.mock.calls[0]?.[2]).toContain(
+			"Navigate to this point?",
+		);
+
+		// tree_go_ requires prior tree_nav_ confirmation (pendingTreeNavs)
+		const go = setupBot();
+		// First trigger nav to set pending state
+		await go.bot.handleUpdate(createCallbackUpdate("tree_nav_branch111"));
+		go.api.answerCallbackQuery.mockClear();
+		go.api.editMessageText.mockClear();
+		// Now confirm navigate
+		await go.bot.handleUpdate(createCallbackUpdate("tree_go_branch111"));
+		expect(go.api.answerCallbackQuery).toHaveBeenCalledWith("cb_1", {
+			text: "Navigating...",
+		});
+		expect(go.pi.service.navigateTree).toHaveBeenCalledWith("branch111");
+		expect(go.api.editMessageText.mock.calls[0]?.[2]).toContain(
+			"✅ Navigated to",
+		);
+
+		// tree_go_ without prior nav shows "expired"
+		const goExpired = setupBot();
+		await goExpired.bot.handleUpdate(createCallbackUpdate("tree_go_branch111"));
+		expect(goExpired.api.answerCallbackQuery).toHaveBeenCalledWith("cb_1", {
+			text: "Confirmation expired. Use /branch again.",
+		});
+
+		// tree_go_ with navigation error
+		const goFail = setupBot({
+			piSessionOverrides: {
+				navigateTree: vi.fn().mockRejectedValue(new Error("nav failed")),
+			},
+		});
+		await goFail.bot.handleUpdate(createCallbackUpdate("tree_nav_branch111"));
+		goFail.api.editMessageText.mockClear();
+		await goFail.bot.handleUpdate(createCallbackUpdate("tree_go_branch111"));
+		expect(goFail.api.editMessageText.mock.calls[0]?.[2]).toContain(
+			"nav failed",
+		);
+
+		// tree_sum_ requires prior tree_nav_ confirmation
+		const sum = setupBot();
+		await sum.bot.handleUpdate(createCallbackUpdate("tree_nav_branch111"));
+		sum.api.answerCallbackQuery.mockClear();
+		sum.api.editMessageText.mockClear();
+		await sum.bot.handleUpdate(createCallbackUpdate("tree_sum_branch111"));
+		expect(sum.api.answerCallbackQuery).toHaveBeenCalledWith("cb_1", {
+			text: "Navigating with summary...",
+		});
+		expect(sum.pi.service.navigateTree).toHaveBeenCalledWith("branch111", {
+			summarize: true,
+		});
+		expect(sum.api.editMessageText.mock.calls[0]?.[2]).toContain(
+			"Branch summary saved",
+		);
+
+		// tree_sum_ without prior nav shows "expired"
+		const sumExpired = setupBot();
+		await sumExpired.bot.handleUpdate(
+			createCallbackUpdate("tree_sum_branch111"),
+		);
+		expect(sumExpired.api.answerCallbackQuery).toHaveBeenCalledWith("cb_1", {
+			text: "Confirmation expired. Use /branch again.",
+		});
+
+		// tree_go_ with cancelled navigation
+		const goCancelled = setupBot({
+			piSessionOverrides: {
+				navigateTree: vi.fn().mockResolvedValue({ cancelled: true }),
+			},
+		});
+		await goCancelled.bot.handleUpdate(
+			createCallbackUpdate("tree_nav_branch111"),
+		);
+		goCancelled.api.editMessageText.mockClear();
+		await goCancelled.bot.handleUpdate(
+			createCallbackUpdate("tree_go_branch111"),
+		);
+		expect(goCancelled.api.editMessageText.mock.calls[0]?.[2]).toContain(
+			"Navigation cancelled.",
+		);
+
+		const cancel = setupBot();
+		await cancel.bot.handleUpdate(createCallbackUpdate("tree_cancel"));
+		expect(cancel.api.answerCallbackQuery).toHaveBeenCalledWith("cb_1", {
+			text: "Cancelled",
+		});
+		expect(cancel.api.editMessageText.mock.calls[0]?.[2]).toContain(
+			"Navigation cancelled.",
+		);
+
+		const mode = setupBot();
+		await mode.bot.handleUpdate(
+			createTestUpdate({ message: { text: "/tree" } }),
+		);
+		mode.api.editMessageText.mockClear();
+		await mode.bot.handleUpdate(createCallbackUpdate("tree_mode_user"));
+		expect(mode.api.editMessageText.mock.calls[0]?.[2]).toContain(
+			"Filter: user messages only.",
+		);
+
+		const modeExpired = setupBot();
+		await modeExpired.bot.handleUpdate(createCallbackUpdate("tree_mode_user"));
+		expect(modeExpired.api.answerCallbackQuery).toHaveBeenCalledWith("cb_1", {
+			text: "Expired, run /tree again",
+		});
+	});
+
+	it("processes plain text messages and subscribes to Pi events", async () => {
+		const { bot, pi, api } = setupBot({
+			configOverrides: { toolVerbosity: "all" },
+		});
+
+		const promptMock = pi.service.prompt as ReturnType<typeof vi.fn>;
+		promptMock.mockImplementation(async () => {
+			pi.emitTextDelta("Hello ");
+			pi.emitTextDelta("world");
+			pi.emitToolStart("bash", "tool-1");
+			pi.emitToolUpdate("tool-1", "stdout\nline");
+			pi.emitToolEnd("tool-1", false);
+			pi.emitAgentEnd();
+		});
+
+		await bot.handleUpdate(
+			createTestUpdate({ message: { text: "continue please" } }),
+		);
+
+		expect(pi.service.subscribe).toHaveBeenCalledTimes(1);
+		expect(pi.service.prompt).toHaveBeenCalledWith("continue please");
+		expect(api.sendChatAction).toHaveBeenCalled();
+		expect(
+			api.sendMessage.mock.calls.some((call) =>
+				String(call[1]).includes("Hello"),
+			),
+		).toBe(true);
+		expect(
+			api.sendMessage.mock.calls.some((call) =>
+				String(call[1]).includes("Running:"),
+			),
+		).toBe(true);
+		expect(
+			api.editMessageText.mock.calls.some((call) =>
+				String(call[2]).includes("Hello world"),
+			),
+		).toBe(true);
+	});
+
+	it("bridges discovered Pi slash commands into the prompt flow", async () => {
+		const { bot, pi } = setupBot({
+			piSessionOverrides: {
+				listSlashCommands: vi.fn().mockResolvedValue([
+					{
+						name: "compact",
+						description: "Compact context",
+						source: "extension",
+						path: "/ext/compact.ts",
+					},
+				]),
+			},
+		});
+
+		await bot.handleUpdate(
+			createTestUpdate({ message: { text: "/compact focus recent work" } }),
+		);
+
+		expect(pi.service.listSlashCommands).toHaveBeenCalledTimes(1);
+		expect(pi.service.prompt).toHaveBeenCalledWith(
+			"/compact focus recent work",
+		);
+	});
+
+	it("bridges /cron status through TelePi and surfaces the extension notification", async () => {
+		const { bot, pi, api } = setupBot({
+			piSessionOverrides: {
+				listSlashCommands: vi.fn().mockResolvedValue([
+					makeTelepiBareNativeMenuSlashCommand(
+						"cron",
+						[
+							{ id: "list", label: "📋 /cron list", commandText: "/cron list" },
+							{
+								id: "status",
+								label: "📊 /cron status",
+								commandText: "/cron status",
+							},
+							{ id: "add", label: "➕ /cron add", commandText: "/cron add" },
+							{
+								id: "manage",
+								label: "🛠️ /cron manage",
+								commandText: "/cron manage",
+							},
+						],
+						{
+							description: "Manage PiCron schedules",
+						},
+					),
+				]),
+			},
+		});
+
+		const promptMock = pi.service.prompt as ReturnType<typeof vi.fn>;
+		promptMock.mockImplementation(async () => {
+			pi.getExtensionBindings()?.uiContext?.notify(
+				"Daemon: running\nSchedules: 1\nEnabled: 1\nNext due: 2026-01-01T09:00:00.000Z",
+				"info",
+			);
+			pi.emitAgentEnd();
+		});
+
+		await bot.handleUpdate(
+			createTestUpdate({ message: { text: "/cron status" } }),
+		);
+		await nextTick();
+
+		expect(pi.service.prompt).toHaveBeenCalledWith("/cron status");
+		expect(
+			api.sendMessage.mock.calls.some((call) =>
+				String(call[1]).includes("Daemon: running"),
+			),
+		).toBe(true);
+		expect(
+			api.sendMessage.mock.calls.some((call) =>
+				String(call[1]).includes("Schedules: 1"),
+			),
+		).toBe(true);
+	});
+
+	it("opens a native TelePi menu for bare slash commands declared via metadata", async () => {
+		const { bot, pi, api } = setupBot({
+			piSessionOverrides: {
+				listSlashCommands: vi.fn().mockResolvedValue([
+					makeTelepiBareNativeMenuSlashCommand(
+						"deploy",
+						[
+							{
+								id: "preview",
+								label: "🧪 /deploy preview",
+								commandText: "/deploy preview",
+							},
+							{
+								id: "status",
+								label: "📊 /deploy status",
+								commandText: "/deploy status",
+							},
+							{
+								id: "prod",
+								label: "🚀 /deploy prod",
+								commandText: "/deploy prod",
+							},
+						],
+						{
+							description: "Deployment shortcuts",
+						},
+					),
+				]),
+			},
+		});
+
+		await bot.handleUpdate(createTestUpdate({ message: { text: "/deploy" } }));
+
+		expect(pi.service.prompt).not.toHaveBeenCalled();
+		expect(api.sendMessage).toHaveBeenCalledTimes(1);
+		expect(String(api.sendMessage.mock.calls[0]?.[1])).toContain("/deploy");
+		expect(getReplyMarkupTexts(api)).toEqual([
+			"🧪 /deploy preview",
+			"📊 /deploy status",
+			"🚀 /deploy prod",
+		]);
+		expect(
+			getReplyMarkupData(api).every((callbackData) =>
+				/^cmdm_[a-z0-9]+$/.test(callbackData),
+			),
+		).toBe(true);
+		expect(new Set(getReplyMarkupData(api)).size).toBe(3);
+		expect(
+			getReplyMarkupData(api).every((callbackData) => callbackData.length < 64),
+		).toBe(true);
+	});
+
+	it("drives bare /cron native menus from real PiCron extension metadata across repos", async () => {
+		const slashCommands = await loadPiCronSlashCommands();
+		const cronCommand = slashCommands.find(
+			(command) => command.name === "cron",
+		);
+
+		expect(cronCommand).toMatchObject({
+			name: "cron",
+			description: "Manage PiCron schedules",
+			integrations: {
+				telepi: {
+					bare: {
+						kind: "native-menu",
+						entries: [
+							{
+								id: "picron.cron.list",
+								label: "List schedules",
+								commandText: "/cron list",
+							},
+							{
+								id: "picron.cron.status",
+								label: "Show status",
+								commandText: "/cron status",
+							},
+							{
+								id: "picron.cron.add",
+								label: "Add schedule",
+								commandText: "/cron add",
+							},
+							{
+								id: "picron.cron.manage",
+								label: "Manage schedules",
+								commandText: "/cron manage",
+							},
+						],
+					},
+				},
+			},
+		});
+
+		const { bot, pi, api } = setupBot({
+			piSessionOverrides: {
+				listSlashCommands: vi.fn().mockResolvedValue(slashCommands),
+			},
+		});
+
+		await bot.handleUpdate(createTestUpdate({ message: { text: "/cron" } }));
+
+		expect(pi.service.prompt).not.toHaveBeenCalled();
+		expect(api.sendMessage).toHaveBeenCalledTimes(1);
+		expect(String(api.sendMessage.mock.calls[0]?.[1])).toContain("/cron");
+
+		const labels = getReplyMarkupTexts(api);
+		expect(labels).toEqual([
+			"List schedules",
+			"Show status",
+			"Add schedule",
+			"Manage schedules",
+		]);
+
+		const showStatusCallbackData =
+			getReplyMarkupData(api)[labels.indexOf("Show status")];
+		expect(showStatusCallbackData).toMatch(/^cmdm_[a-z0-9]+$/);
+
+		await bot.handleUpdate(createCallbackUpdate(showStatusCallbackData!));
+
+		expect(api.answerCallbackQuery).toHaveBeenCalledWith("cb_1", {
+			text: "Running /cron status",
+		});
+		expect(pi.service.prompt).toHaveBeenCalledWith("/cron status");
+	});
+
+	it("dispatches generic command-menu callbacks through the normal prompt flow", async () => {
+		const { bot, pi, api } = setupBot({
+			piSessionOverrides: {
+				listSlashCommands: vi.fn().mockResolvedValue([
+					makeTelepiBareNativeMenuSlashCommand("deploy", [
+						{
+							id: "preview",
+							label: "🧪 /deploy preview",
+							commandText: "/deploy preview",
+						},
+						{
+							id: "status",
+							label: "📊 /deploy status",
+							commandText: "/deploy status",
+						},
+					]),
+				]),
+			},
+		});
+		const promptMock = pi.service.prompt as ReturnType<typeof vi.fn>;
+
+		await bot.handleUpdate(createTestUpdate({ message: { text: "/deploy" } }));
+		const callbackData = getReplyMarkupData(api)[1]!;
+
+		promptMock.mockImplementation(async (promptText: string) => {
+			expect(api.answerCallbackQuery).toHaveBeenCalledWith("cb_1", {
+				text: "Running /deploy status",
+			});
+			expect(promptText).toBe("/deploy status");
+			pi.emitAgentEnd();
+		});
+
+		await bot.handleUpdate(createCallbackUpdate(callbackData));
+
+		expect(api.answerCallbackQuery).toHaveBeenCalledWith("cb_1", {
+			text: "Running /deploy status",
+		});
+		expect(pi.service.prompt).toHaveBeenCalledWith("/deploy status");
+	});
+
+	it("detaches command-menu prompt callbacks so extension dialog callbacks stay responsive", async () => {
+		let resolvePrompt!: () => void;
+		const { bot, pi, api } = setupBot({
+			piSessionOverrides: {
+				listSlashCommands: vi.fn().mockResolvedValue([
+					makeTelepiBareNativeMenuSlashCommand("deploy", [
+						{
+							id: "manage",
+							label: "🛠️ /deploy manage",
+							commandText: "/deploy manage",
+						},
+						{
+							id: "status",
+							label: "📊 /deploy status",
+							commandText: "/deploy status",
+						},
+					]),
+				]),
+			},
+		});
+		const promptMock = pi.service.prompt as ReturnType<typeof vi.fn>;
+
+		promptMock.mockImplementation(async (promptText: string) => {
+			expect(promptText).toBe("/deploy manage");
+			const choice = await pi
+				.getExtensionBindings()
+				?.uiContext?.select("Pick one", ["Alpha", "Beta"]);
+			pi.emitTextDelta(`picked ${choice}`);
+			await new Promise<void>((resolve) => {
+				resolvePrompt = resolve;
+			});
+			pi.emitAgentEnd();
+		});
+
+		await bot.handleUpdate(createTestUpdate({ message: { text: "/deploy" } }));
+		const callbackData = getReplyMarkupData(api)[0]!;
+
+		let callbackHandled = false;
+		const pendingCallback = bot.handleUpdate(
+			createCallbackUpdate(callbackData),
+		);
+		void pendingCallback.then(() => {
+			callbackHandled = true;
+		});
+
+		await nextTick();
+
+		expect(api.answerCallbackQuery).toHaveBeenCalledWith("cb_1", {
+			text: "Running /deploy manage",
+		});
+		expect(pi.service.prompt).toHaveBeenCalledWith("/deploy manage");
+		expect(callbackHandled).toBe(true);
+
+		const selectCallback = api.sendMessage.mock.calls
+			.flatMap(
+				(call) =>
+					call[2]?.reply_markup?.inline_keyboard
+						?.flat()
+						.map((button: any) => button.callback_data) ?? [],
+			)
+			.find((data) => /^ui_sel_[a-z0-9]+_1$/.test(data ?? ""));
+		expect(selectCallback).toBeTruthy();
+
+		api.answerCallbackQuery.mockClear();
+		await bot.handleUpdate(
+			createCallbackUpdate(selectCallback!, {
+				callback_query: {
+					message: {
+						message_id: 2,
+					},
+				},
+			}),
+		);
+
+		expect(api.answerCallbackQuery).toHaveBeenCalledWith("cb_1", {
+			text: "Selected Beta",
+		});
+		expect(
+			api.editMessageText.mock.calls.some((call) =>
+				String(call[2]).includes("Selected: Beta"),
+			),
+		).toBe(true);
+
+		resolvePrompt();
+		await nextTick();
+
+		expect(
+			api.sendMessage.mock.calls.some((call) =>
+				String(call[1]).includes("picked Beta"),
+			),
+		).toBe(true);
+	});
+
+	it("detaches text prompt handling from the Telegram update lifetime", async () => {
+		let resolvePrompt!: () => void;
+		const { bot, pi } = setupBot({
+			piSessionOverrides: {
+				prompt: vi.fn().mockImplementation(
+					() =>
+						new Promise<void>((resolve) => {
+							resolvePrompt = resolve;
+						}),
+				),
+			},
+		});
+
+		let updateHandled = false;
+		const pendingUpdate = bot.handleUpdate(
+			createTestUpdate({ message: { text: "hello" } }),
+		);
+		void pendingUpdate.then(() => {
+			updateHandled = true;
+		});
+
+		await nextTick();
+
+		expect(updateHandled).toBe(true);
+		expect(pi.service.prompt).toHaveBeenCalledWith("hello");
+
+		resolvePrompt();
+		await nextTick();
+	});
+
+	it("fails fast for generic command-menu callbacks while a prompt is already in flight", async () => {
+		let resolvePrompt!: () => void;
+		const { bot, pi, api } = setupBot({
+			piSessionOverrides: {
+				listSlashCommands: vi.fn().mockResolvedValue([
+					makeTelepiBareNativeMenuSlashCommand("deploy", [
+						{
+							id: "preview",
+							label: "🧪 /deploy preview",
+							commandText: "/deploy preview",
+						},
+						{
+							id: "status",
+							label: "📊 /deploy status",
+							commandText: "/deploy status",
+						},
+					]),
+				]),
+				prompt: vi.fn().mockImplementation(
+					() =>
+						new Promise<void>((resolve) => {
+							resolvePrompt = resolve;
+						}),
+				),
+			},
+		});
+		const promptMock = pi.service.prompt as ReturnType<typeof vi.fn>;
+
+		await bot.handleUpdate(createTestUpdate({ message: { text: "/deploy" } }));
+		const callbackData = getReplyMarkupData(api)[0]!;
+
+		const pending = bot.handleUpdate(
+			createTestUpdate({ message: { text: "hello" } }),
+		);
+		await nextTick();
+
+		expect(promptMock).toHaveBeenCalledTimes(1);
+
+		api.answerCallbackQuery.mockClear();
+		const sendMessageCalls = api.sendMessage.mock.calls.length;
+
+		await bot.handleUpdate(createCallbackUpdate(callbackData));
+
+		expect(api.answerCallbackQuery).toHaveBeenCalledWith("cb_1", {
+			text: "Wait for the current prompt to finish",
+		});
+		expect(api.answerCallbackQuery).not.toHaveBeenCalledWith("cb_1", {
+			text: "Running /deploy preview",
+		});
+		expect(api.sendMessage).toHaveBeenCalledTimes(sendMessageCalls);
+		expect(promptMock).toHaveBeenCalledTimes(1);
+
+		resolvePrompt();
+		await pending;
+	});
+
+	it("falls back to forwarding bare slash commands when native menu metadata is missing or invalid", async () => {
+		for (const slashCommands of [
+			[makeSlashCommand("deploy", { description: "Deploy app" })],
+			[
+				makeTelepiBareNativeMenuSlashCommand("deploy", [
+					{ id: "preview", label: "", commandText: "/deploy preview" },
+				]),
+			],
+		]) {
+			const { bot, pi } = setupBot({
+				piSessionOverrides: {
+					listSlashCommands: vi.fn().mockResolvedValue(slashCommands),
+				},
+			});
+
+			await bot.handleUpdate(
+				createTestUpdate({ message: { text: "/deploy" } }),
+			);
+
+			expect(pi.service.prompt).toHaveBeenCalledWith("/deploy");
+		}
+	});
+
+	it("passes schedule-like plain text through unchanged instead of applying cron-specific rewrites", async () => {
+		const { bot, pi } = setupBot({
+			piSessionOverrides: {
+				listSlashCommands: vi.fn().mockResolvedValue([
+					makeTelepiBareNativeMenuSlashCommand(
+						"cron",
+						[
+							{
+								id: "picron.cron.list",
+								label: "List schedules",
+								commandText: "/cron list",
+							},
+							{
+								id: "picron.cron.status",
+								label: "Show status",
+								commandText: "/cron status",
+							},
+						],
+						{
+							description: "Manage PiCron schedules",
+						},
+					),
+				]),
+			},
+		});
+
+		await bot.handleUpdate(
+			createTestUpdate({ message: { text: "list schedules" } }),
+		);
+
+		expect(pi.service.prompt).toHaveBeenCalledWith("list schedules");
+	});
+
+	it("drives a /cron add style multi-step extension dialog flow through TelePi replies", async () => {
+		const { bot, pi, api } = setupBot({
+			piSessionOverrides: {
+				listSlashCommands: vi.fn().mockResolvedValue([
+					{
+						name: "cron",
+						description: "Manage PiCron schedules",
+						source: "extension",
+						path: "/ext/picron.ts",
+					},
+				]),
+			},
+		});
+
+		const promptMock = pi.service.prompt as ReturnType<typeof vi.fn>;
+		promptMock.mockImplementation(async () => {
+			const ui = pi.getExtensionBindings()?.uiContext;
+			const name = await ui?.input("Schedule name", "Daily review");
+			const cron = await ui?.input("Cron expression", "0 9 * * *");
+			const timezone = await ui?.input("Timezone", "UTC");
+			const prompt = await ui?.input("Prompt", "Review the repo");
+			const cwd = await ui?.input(
+				"Target cwd (optional)",
+				"/workspace/current",
+			);
+			const sessionFile = await ui?.input(
+				"Target session file (optional)",
+				"session.jsonl",
+			);
+			ui?.notify(
+				`Created schedule ${name} (${cron}, ${timezone}, ${prompt}, ${cwd}, ${sessionFile}).`,
+				"info",
+			);
+			pi.emitAgentEnd();
+		});
+
+		const pending = bot.handleUpdate(
+			createTestUpdate({ message: { text: "/cron add" } }),
+		);
+		await nextTick();
+
+		expect(
+			api.sendMessage.mock.calls.some((call) =>
+				String(call[1]).includes("Schedule name"),
+			),
+		).toBe(true);
+
+		await bot.handleUpdate(
+			createTestUpdate({ message: { text: "Daily review" } }),
+		);
+		await nextTick();
+		expect(
+			api.sendMessage.mock.calls.some((call) =>
+				String(call[1]).includes("Cron expression"),
+			),
+		).toBe(true);
+
+		await bot.handleUpdate(
+			createTestUpdate({ message: { text: "0 9 * * *" } }),
+		);
+		await nextTick();
+		expect(
+			api.sendMessage.mock.calls.some((call) =>
+				String(call[1]).includes("Timezone"),
+			),
+		).toBe(true);
+
+		await bot.handleUpdate(createTestUpdate({ message: { text: "UTC" } }));
+		await nextTick();
+		expect(
+			api.sendMessage.mock.calls.some((call) =>
+				String(call[1]).includes("Prompt"),
+			),
+		).toBe(true);
+
+		await bot.handleUpdate(
+			createTestUpdate({ message: { text: "Review the repo" } }),
+		);
+		await nextTick();
+		expect(
+			api.sendMessage.mock.calls.some((call) =>
+				String(call[1]).includes("Target cwd (optional)"),
+			),
+		).toBe(true);
+
+		await bot.handleUpdate(
+			createTestUpdate({ message: { text: "/workspace/current" } }),
+		);
+		await nextTick();
+		expect(
+			api.sendMessage.mock.calls.some((call) =>
+				String(call[1]).includes("Target session file (optional)"),
+			),
+		).toBe(true);
+
+		await bot.handleUpdate(
+			createTestUpdate({ message: { text: "session.jsonl" } }),
+		);
+		await pending;
+		await nextTick();
+
+		expect(pi.service.prompt).toHaveBeenCalledWith("/cron add");
+		expect(
+			api.sendMessage.mock.calls.some((call) =>
+				String(call[1]).includes("Created schedule Daily review"),
+			),
+		).toBe(true);
+	});
+
+	it("normalizes bot-addressed Pi slash commands before bridging them", async () => {
+		const { bot, pi } = setupBot({
+			piSessionOverrides: {
+				listSlashCommands: vi.fn().mockResolvedValue([
+					{
+						name: "compact",
+						description: "Compact context",
+						source: "extension",
+						path: "/ext/compact.ts",
+					},
+				]),
+			},
+		});
+
+		await bot.handleUpdate(
+			createTestUpdate({
+				message: { text: "/compact@telepi_test_bot focus recent work" },
+			}),
+		);
+
+		expect(pi.service.prompt).toHaveBeenCalledWith(
+			"/compact focus recent work",
+		);
+	});
+
+	it("ignores slash commands addressed to another bot", async () => {
+		const { bot, pi, api } = setupBot({
+			piSessionOverrides: {
+				listSlashCommands: vi.fn().mockResolvedValue([
+					{
+						name: "compact",
+						description: "Compact context",
+						source: "extension",
+						path: "/ext/compact.ts",
+					},
+				]),
+			},
+		});
+
+		await bot.handleUpdate(
+			createTestUpdate({
+				message: { text: "/compact@another_bot focus recent work" },
+			}),
+		);
+
+		expect(pi.service.prompt).not.toHaveBeenCalled();
+		expect(api.sendMessage).not.toHaveBeenCalled();
+	});
+
+	it("does not bridge unknown slash commands and shows a helpful reply", async () => {
+		const { bot, pi, api } = setupBot({
+			piSessionOverrides: {
+				listSlashCommands: vi.fn().mockResolvedValue([]),
+			},
+		});
+
+		await bot.handleUpdate(createTestUpdate({ message: { text: "/ignored" } }));
+
+		expect(pi.service.listSlashCommands).toHaveBeenCalledTimes(1);
+		expect(pi.service.prompt).not.toHaveBeenCalled();
+		expect(
+			api.sendMessage.mock.calls.some((call) =>
+				String(call[1]).includes("Unknown command"),
+			),
+		).toBe(true);
+	});
+
+	it("shows /commands as a paginated picker with TelePi and Pi filters", async () => {
+		const { bot, pi, api } = setupBot({
+			piSessionOverrides: {
+				listSlashCommands: vi.fn().mockResolvedValue([
+					{
+						name: "compact",
+						description: "Compact context",
+						source: "extension",
+						path: "/ext/compact.ts",
+					},
+					{
+						name: "review",
+						description: "Review staged changes",
+						source: "prompt",
+						path: "/prompts/review.md",
+					},
+					{
+						name: "skill:browser-tools",
+						description: "Browser automation",
+						source: "skill",
+						path: "/skills/browser.md",
+					},
+				]),
+			},
+		});
+
+		await bot.handleUpdate(
+			createTestUpdate({ message: { text: "/commands" } }),
+		);
+
+		expect(pi.service.listSlashCommands).toHaveBeenCalledTimes(1);
+		expect(
+			api.sendMessage.mock.calls.some((call) =>
+				String(call[1]).includes("Command picker"),
+			),
+		).toBe(true);
+		expect(getReplyMarkupData(api)).toContain("cmd_page_1");
+		expect(getReplyMarkupData(api)).toContain("cmd_filter_all");
+		expect(getReplyMarkupData(api)).toContain("cmd_filter_telepi");
+		expect(getReplyMarkupData(api)).toContain("cmd_filter_pi");
+
+		await bot.handleUpdate(createCallbackUpdate("cmd_page_2"));
+
+		expect(String(api.editMessageText.mock.calls[0]?.[2])).toContain(
+			"/compact",
+		);
+		expect(getEditedReplyMarkupTexts(api, 0)).toContain("🧩 /compact");
+		expect(getEditedReplyMarkupTexts(api, 0)).toContain("📝 /review");
+		expect(getEditedReplyMarkupTexts(api, 0)).toContain(
+			"🧰 /skill:browser-tools",
+		);
+
+		await bot.handleUpdate(createCallbackUpdate("cmd_filter_pi"));
+
+		expect(String(api.editMessageText.mock.calls[1]?.[2])).toContain(
+			"/compact",
+		);
+		expect(getEditedReplyMarkupTexts(api, 1)).toContain("🧩 /compact");
+		expect(getEditedReplyMarkupTexts(api, 1)).toContain("📝 /review");
+		expect(getEditedReplyMarkupTexts(api, 1)).toContain(
+			"🧰 /skill:browser-tools",
+		);
+		expect(getEditedReplyMarkupData(api, 1)).toContain("cmd_filter_all");
+		expect(getEditedReplyMarkupData(api, 1)).toContain("cmd_filter_telepi");
+		expect(getEditedReplyMarkupData(api, 1)).toContain("cmd_filter_pi");
+	});
+
+	it("runs TelePi commands from the /commands picker", async () => {
+		const { bot, api } = setupBot({
+			piSessionOverrides: {
+				listSlashCommands: vi.fn().mockResolvedValue([]),
+			},
+		});
+
+		await bot.handleUpdate(
+			createTestUpdate({ message: { text: "/commands" } }),
+		);
+		const helpButton = getReplyMarkupButtons(api).find((button) =>
+			button.text.includes("/help"),
+		);
+
+		expect(helpButton).toBeDefined();
+
+		await bot.handleUpdate(createCallbackUpdate(helpButton!.callback_data));
+
+		expect(
+			api.sendMessage.mock.calls.some((call) =>
+				String(call[1]).includes(
+					"Each Telegram chat/topic has its own Pi session and retry history.",
+				),
+			),
+		).toBe(true);
+	});
+
+	it("runs Pi commands from the /commands picker", async () => {
+		const { bot, pi, api } = setupBot({
+			piSessionOverrides: {
+				listSlashCommands: vi.fn().mockResolvedValue([
+					{
+						name: "compact",
+						description: "Compact context",
+						source: "extension",
+						path: "/ext/compact.ts",
+					},
+				]),
+			},
+		});
+
+		await bot.handleUpdate(
+			createTestUpdate({ message: { text: "/commands" } }),
+		);
+		await bot.handleUpdate(createCallbackUpdate("cmd_page_2"));
+		const compactButton = getEditedReplyMarkupButtons(api, 0).find((button) =>
+			button.text.includes("/compact"),
+		);
+
+		expect(compactButton).toBeDefined();
+
+		await bot.handleUpdate(createCallbackUpdate(compactButton!.callback_data));
+
+		expect(pi.service.prompt).toHaveBeenCalledWith("/compact");
+	});
+
+	it("shows prompt argument hints in /commands without changing Pi command dispatch", async () => {
+		const tempDir = mkdtempSync(path.join(tmpdir(), "telepi-command-picker-"));
+		const promptPath = path.join(tempDir, "review.md");
+		writeFileSync(
+			promptPath,
+			[
+				"---",
+				"description: Review staged changes",
+				'argument-hint: "<PR-URL>"',
+				"---",
+				"Review changes.",
+				"",
+			].join("\n"),
+		);
+
+		try {
+			const { bot, pi, api } = setupBot({
+				piSessionOverrides: {
+					listSlashCommands: vi.fn().mockResolvedValue([
+						{
+							name: "review",
+							description: "Review staged changes",
+							source: "prompt",
+							sourceInfo: {
+								path: promptPath,
+								source: "local",
+								scope: "project",
+								origin: "top-level",
+							},
+						},
+					]),
+				},
+			});
+
+			await bot.handleUpdate(
+				createTestUpdate({ message: { text: "/commands" } }),
+			);
+			await bot.handleUpdate(createCallbackUpdate("cmd_filter_pi"));
+
+			expect(String(api.editMessageText.mock.calls[0]?.[2])).toContain(
+				"/review &lt;PR-URL&gt;",
+			);
+			expect(getEditedReplyMarkupTexts(api, 0)).toContain(
+				"📝 /review <PR-URL>",
+			);
+
+			const reviewButton = getEditedReplyMarkupButtons(api, 0).find((button) =>
+				button.text.includes("/review <PR-URL>"),
+			);
+			expect(reviewButton).toBeDefined();
+
+			await bot.handleUpdate(createCallbackUpdate(reviewButton!.callback_data));
+
+			expect(pi.service.prompt).toHaveBeenCalledWith("/review");
+		} finally {
+			rmSync(tempDir, { recursive: true, force: true });
+		}
+	});
+
+	it("keeps the /commands picker active when a Pi command is tapped while busy", async () => {
+		const { bot, pi, api } = setupBot({
+			piSessionOverrides: {
+				isStreaming: vi.fn().mockReturnValueOnce(true).mockReturnValue(false),
+				listSlashCommands: vi.fn().mockResolvedValue([
+					{
+						name: "compact",
+						description: "Compact context",
+						source: "extension",
+						path: "/ext/compact.ts",
+					},
+				]),
+			},
+		});
+
+		await bot.handleUpdate(
+			createTestUpdate({ message: { text: "/commands" } }),
+		);
+		await bot.handleUpdate(createCallbackUpdate("cmd_page_2"));
+		const compactButton = getEditedReplyMarkupButtons(api, 0).find((button) =>
+			button.text.includes("/compact"),
+		);
+
+		expect(compactButton).toBeDefined();
+
+		await bot.handleUpdate(createCallbackUpdate(compactButton!.callback_data));
+		expect(api.answerCallbackQuery).toHaveBeenCalledWith("cb_1", {
+			text: "Wait for the current prompt to finish",
+		});
+		expect(pi.service.prompt).not.toHaveBeenCalled();
+
+		await bot.handleUpdate(createCallbackUpdate(compactButton!.callback_data));
+		expect(pi.service.prompt).toHaveBeenCalledWith("/compact");
+	});
+
+	it("shows an empty-state Pi filter when no Pi commands are discovered", async () => {
+		const { bot, api } = setupBot({
+			piSessionOverrides: {
+				listSlashCommands: vi.fn().mockResolvedValue([]),
+			},
+		});
+
+		await bot.handleUpdate(
+			createTestUpdate({ message: { text: "/commands" } }),
+		);
+		await bot.handleUpdate(createCallbackUpdate("cmd_filter_pi"));
+
+		expect(String(api.editMessageText.mock.calls[0]?.[2])).toContain(
+			"No Pi commands found in this session.",
+		);
+		expect(getEditedReplyMarkupData(api, 0)).toContain("cmd_filter_all");
+		expect(getEditedReplyMarkupData(api, 0)).toContain("cmd_filter_telepi");
+		expect(getEditedReplyMarkupData(api, 0)).toContain("cmd_filter_pi");
+	});
+
+	it("surfaces /commands discovery failures", async () => {
+		const { bot, api } = setupBot({
+			piSessionOverrides: {
+				listSlashCommands: vi
+					.fn()
+					.mockRejectedValue(new Error("extensions unavailable")),
+			},
+		});
+
+		await bot.handleUpdate(
+			createTestUpdate({ message: { text: "/commands" } }),
+		);
+
+		expect(
+			api.sendMessage.mock.calls.some((call) =>
+				String(call[1]).includes("Failed to load commands"),
+			),
+		).toBe(true);
+		expect(
+			api.sendMessage.mock.calls.some((call) =>
+				String(call[1]).includes("extensions unavailable"),
+			),
+		).toBe(true);
+	});
+
+	it("syncs chat-scoped Telegram commands for registerable Pi slash commands", async () => {
+		const { bot, api } = setupBot({
+			piSessionOverrides: {
+				listSlashCommands: vi.fn().mockResolvedValue([
+					{
+						name: "compact",
+						description: "Compact context",
+						source: "extension",
+						path: "/ext/compact.ts",
+					},
+					{
+						name: "review",
+						description: "Review staged changes",
+						source: "prompt",
+						path: "/prompts/review.md",
+					},
+					{
+						name: "skill:browser-tools",
+						description: "Browser automation",
+						source: "skill",
+						path: "/skills/browser.md",
+					},
+					{
+						name: "switch",
+						description: "Should not override TelePi switch",
+						source: "extension",
+						path: "/ext/switch.ts",
+					},
+				]),
+			},
+		});
+
+		await bot.handleUpdate(
+			createTestUpdate({ message: { text: "/commands" } }),
+		);
+
+		const scoped = getSetMyCommandsCall(api, 0);
+		expect(scoped?.scope).toEqual({ type: "chat", chat_id: ALLOWED_CHAT_ID });
+		expect(
+			scoped?.commands.some((command) => command.command === "compact"),
+		).toBe(true);
+		expect(
+			scoped?.commands.some((command) => command.command === "review"),
+		).toBe(true);
+		expect(
+			scoped?.commands.some(
+				(command) => command.command === "skill:browser-tools",
+			),
+		).toBe(false);
+		expect(
+			scoped?.commands.some(
+				(command) =>
+					command.command === "switch" && command.description.startsWith("Pi:"),
+			),
+		).toBe(false);
+	});
+
+	it("avoids redundant scoped Telegram command sync when the command set is unchanged", async () => {
+		const { bot, api } = setupBot({
+			piSessionOverrides: {
+				listSlashCommands: vi.fn().mockResolvedValue([
+					{
+						name: "compact",
+						description: "Compact context",
+						source: "extension",
+						path: "/ext/compact.ts",
+					},
+				]),
+			},
+		});
+
+		await bot.handleUpdate(
+			createTestUpdate({ message: { text: "/commands" } }),
+		);
+		await bot.handleUpdate(
+			createTestUpdate({ message: { text: "/commands" } }),
+		);
+
+		expect(api.setMyCommands).toHaveBeenCalledTimes(1);
+	});
+
+	it("replaces chat-scoped Telegram commands when the discovered Pi commands change", async () => {
+		const listSlashCommands = vi
+			.fn()
+			.mockResolvedValueOnce([
+				{
+					name: "compact",
+					description: "Compact context",
+					source: "extension",
+					path: "/ext/compact.ts",
+				},
+			])
+			.mockResolvedValueOnce([]);
+		const { bot, api } = setupBot({
+			piSessionOverrides: {
+				listSlashCommands,
+			},
+		});
+
+		await bot.handleUpdate(
+			createTestUpdate({ message: { text: "/commands" } }),
+		);
+		await bot.handleUpdate(
+			createTestUpdate({ message: { text: "/commands" } }),
+		);
+
+		expect(api.setMyCommands).toHaveBeenCalledTimes(2);
+		expect(
+			getSetMyCommandsCall(api, 0)?.commands.some(
+				(command) => command.command === "compact",
+			),
+		).toBe(true);
+		expect(
+			getSetMyCommandsCall(api, 1)?.commands.some(
+				(command) => command.command === "compact",
+			),
+		).toBe(false);
+	});
+
+	it("forwards runtime-backed new-session options from extension command actions", async () => {
+		const { bot, pi } = setupBot();
+		const withSession = vi.fn().mockResolvedValue(undefined);
+
+		const promptMock = pi.service.prompt as ReturnType<typeof vi.fn>;
+		promptMock.mockImplementation(async () => {
+			await pi.getExtensionBindings()?.commandContextActions?.newSession({
+				parentSession: "/tmp/handoff-parent.jsonl",
+				withSession,
+			});
+			pi.emitAgentEnd();
+		});
+
+		await bot.handleUpdate(
+			createTestUpdate({ message: { text: "prepare a handoff" } }),
+		);
+
+		expect(pi.service.newSession).toHaveBeenCalledWith({
+			parentSession: "/tmp/handoff-parent.jsonl",
+			withSession,
+		});
+	});
+
+	it("forwards runtime-backed fork options from extension command actions", async () => {
+		const { bot, pi } = setupBot();
+		const withSession = vi.fn().mockResolvedValue(undefined);
+
+		const promptMock = pi.service.prompt as ReturnType<typeof vi.fn>;
+		promptMock.mockImplementation(async () => {
+			await pi.getExtensionBindings()?.commandContextActions?.fork("leaf1234", {
+				position: "before",
+				withSession,
+			});
+			pi.emitAgentEnd();
+		});
+
+		await bot.handleUpdate(
+			createTestUpdate({ message: { text: "fork from extension" } }),
+		);
+
+		expect(pi.service.fork).toHaveBeenCalledWith("leaf1234", {
+			position: "before",
+			withSession,
+		});
+	});
+
+	it("bubbles cancelled switch-session results from extension command actions", async () => {
+		const { bot, pi } = setupBot({
+			piSessionOverrides: {
+				switchSession: vi.fn().mockResolvedValue({
+					sessionId: "test-id",
+					sessionFile: "/tmp/test.jsonl",
+					workspace: "/workspace",
+					model: "anthropic/claude-sonnet-4-5",
+					cancelled: true,
+				}),
+			},
+		});
+		const withSession = vi.fn().mockResolvedValue(undefined);
+		let switchResult: { cancelled: boolean } | undefined;
+
+		const promptMock = pi.service.prompt as ReturnType<typeof vi.fn>;
+		promptMock.mockImplementation(async () => {
+			switchResult = await pi
+				.getExtensionBindings()
+				?.commandContextActions?.switchSession("/tmp/other.jsonl", {
+					withSession,
+				});
+			pi.emitAgentEnd();
+		});
+
+		await bot.handleUpdate(
+			createTestUpdate({ message: { text: "switch from extension" } }),
+		);
+
+		expect(pi.service.switchSession).toHaveBeenCalledWith("/tmp/other.jsonl", {
+			withSession,
+		});
+		expect(switchResult).toEqual({ cancelled: true });
+	});
+
+	it("surfaces extension command notifications in Telegram", async () => {
+		const { bot, pi, api } = setupBot({
+			piSessionOverrides: {
+				listSlashCommands: vi.fn().mockResolvedValue([
+					{
+						name: "compact",
+						description: "Compact context",
+						source: "extension",
+						path: "/ext/compact.ts",
+					},
+				]),
+			},
+		});
+
+		const promptMock = pi.service.prompt as ReturnType<typeof vi.fn>;
+		promptMock.mockImplementation(async () => {
+			pi.getExtensionBindings()?.uiContext?.notify(
+				"No conversation to compact",
+				"error",
+			);
+		});
+
+		await bot.handleUpdate(createTestUpdate({ message: { text: "/compact" } }));
+		await nextTick();
+
+		expect(pi.service.bindExtensions).toHaveBeenCalledTimes(1);
+		expect(
+			api.sendMessage.mock.calls.some((call) =>
+				String(call[1]).includes("No conversation to compact"),
+			),
+		).toBe(true);
+	});
+
+	it("surfaces extension command errors in Telegram", async () => {
+		const { bot, pi, api } = setupBot({
+			piSessionOverrides: {
+				listSlashCommands: vi.fn().mockResolvedValue([
+					{
+						name: "compact",
+						description: "Compact context",
+						source: "extension",
+						path: "/ext/compact.ts",
+					},
+				]),
+			},
+		});
+
+		const promptMock = pi.service.prompt as ReturnType<typeof vi.fn>;
+		promptMock.mockImplementation(async () => {
+			pi.getExtensionBindings()?.onError?.({
+				extensionPath: "command:compact",
+				event: "command",
+				error: "boom",
+			});
+		});
+
+		await bot.handleUpdate(createTestUpdate({ message: { text: "/compact" } }));
+		await nextTick();
+
+		expect(pi.service.bindExtensions).toHaveBeenCalledTimes(1);
+		expect(
+			api.sendMessage.mock.calls.some((call) =>
+				String(call[1]).includes("/compact failed"),
+			),
+		).toBe(true);
+		expect(
+			api.sendMessage.mock.calls.some((call) =>
+				String(call[1]).includes("boom"),
+			),
+		).toBe(true);
+	});
+
+	it("supports extension select dialogs through Telegram callbacks", async () => {
+		const { bot, pi, api } = setupBot({
+			piSessionOverrides: {
+				listSlashCommands: vi.fn().mockResolvedValue([
+					{
+						name: "pick",
+						description: "Pick an option",
+						source: "extension",
+						path: "/ext/pick.ts",
+					},
+				]),
+			},
+		});
+
+		const promptMock = pi.service.prompt as ReturnType<typeof vi.fn>;
+		promptMock.mockImplementation(async () => {
+			const choice = await pi
+				.getExtensionBindings()
+				?.uiContext?.select("Pick one", ["Alpha", "Beta"]);
+			pi.emitTextDelta(`picked ${choice}`);
+			pi.emitAgentEnd();
+		});
+
+		const pending = bot.handleUpdate(
+			createTestUpdate({ message: { text: "/pick" } }),
+		);
+		await nextTick();
+
+		expect(
+			api.sendMessage.mock.calls.some((call) =>
+				String(call[1]).includes("Pick one"),
+			),
+		).toBe(true);
+		const selectCallback = getReplyMarkupData(api, 0).find((data) =>
+			/^ui_sel_[a-z0-9]+_1$/.test(data ?? ""),
+		);
+		expect(selectCallback).toBeTruthy();
+
+		await bot.handleUpdate(createCallbackUpdate(selectCallback!));
+		await pending;
+
+		expect(
+			api.sendMessage.mock.calls.some((call) =>
+				String(call[1]).includes("picked Beta"),
+			),
+		).toBe(true);
+	});
+
+	it("supports extension select dialogs when forum callbacks omit the topic thread id", async () => {
+		const topicKey = makeContextKey(ALLOWED_CHAT_ID, 101);
+		const { bot, api, registry } = setupBot({
+			perContextSessionOverrides: {
+				[topicKey]: {
+					listSlashCommands: vi.fn().mockResolvedValue([
+						{
+							name: "pick",
+							description: "Pick an option",
+							source: "extension",
+							path: "/ext/pick.ts",
+						},
+					]),
+				},
+			},
+		});
+
+		await registry.registry.getOrCreate({
+			chatId: ALLOWED_CHAT_ID,
+			messageThreadId: 101,
+		});
+		const topicPi = registry.getSession(ALLOWED_CHAT_ID, 101)!;
+		const promptMock = topicPi.service.prompt as ReturnType<typeof vi.fn>;
+		promptMock.mockImplementation(async () => {
+			const choice = await topicPi
+				.getExtensionBindings()
+				?.uiContext?.select("Pick one", ["Alpha", "Beta"]);
+			topicPi.emitTextDelta(`picked ${choice}`);
+			topicPi.emitAgentEnd();
+		});
+
+		const pending = bot.handleUpdate(
+			createTestUpdate({
+				message: {
+					text: "/pick",
+					chat: { id: ALLOWED_CHAT_ID, type: "supergroup" },
+					message_thread_id: 101,
+				},
+			}),
+		);
+		await nextTick();
+
+		const selectCallback = api.sendMessage.mock.calls
+			.flatMap(
+				(call) =>
+					call[2]?.reply_markup?.inline_keyboard
+						?.flat()
+						.map((button: any) => button.callback_data) ?? [],
+			)
+			.find((data) => /^ui_sel_[a-z0-9]+_1$/.test(data ?? ""));
+		expect(selectCallback).toBeTruthy();
+
+		await bot.handleUpdate(
+			createCallbackUpdate(selectCallback!, {
+				callback_query: {
+					message: {
+						chat: { id: ALLOWED_CHAT_ID, type: "supergroup" },
+					},
+				},
+			}),
+		);
+		await pending;
+
+		expect(api.answerCallbackQuery).toHaveBeenCalledWith("cb_1", {
+			text: "Selected Beta",
+		});
+		expect(
+			api.sendMessage.mock.calls.some(
+				(call) =>
+					String(call[1]).includes("picked Beta") &&
+					call[2]?.message_thread_id === 101,
+			),
+		).toBe(true);
+	});
+
+	it("still resolves extension dialog callbacks when Telegram rejects answerCallbackQuery", async () => {
+		const { bot, pi, api } = setupBot({
+			piSessionOverrides: {
+				listSlashCommands: vi.fn().mockResolvedValue([
+					{
+						name: "pick",
+						description: "Pick an option",
+						source: "extension",
+						path: "/ext/pick.ts",
+					},
+				]),
+			},
+		});
+
+		const promptMock = pi.service.prompt as ReturnType<typeof vi.fn>;
+		promptMock.mockImplementation(async () => {
+			const choice = await pi
+				.getExtensionBindings()
+				?.uiContext?.select("Pick one", ["Alpha", "Beta"]);
+			pi.emitTextDelta(`picked ${choice}`);
+			pi.emitAgentEnd();
+		});
+
+		const pending = bot.handleUpdate(
+			createTestUpdate({ message: { text: "/pick" } }),
+		);
+		await nextTick();
+
+		const selectCallback = getReplyMarkupData(api, 0).find((data) =>
+			/^ui_sel_[a-z0-9]+_1$/.test(data ?? ""),
+		);
+		expect(selectCallback).toBeTruthy();
+
+		api.answerCallbackQuery.mockRejectedValueOnce(new Error("query too old"));
+		await bot.handleUpdate(createCallbackUpdate(selectCallback!));
+		await pending;
+
+		expect(
+			api.editMessageText.mock.calls.some((call) =>
+				String(call[2]).includes("Selected: Beta"),
+			),
+		).toBe(true);
+		expect(
+			api.sendMessage.mock.calls.some((call) =>
+				String(call[1]).includes("picked Beta"),
+			),
+		).toBe(true);
+	});
+
+	it("supports extension confirm dialogs through Telegram callbacks", async () => {
+		const { bot, pi, api } = setupBot({
+			piSessionOverrides: {
+				listSlashCommands: vi.fn().mockResolvedValue([
+					{
+						name: "confirm",
+						description: "Confirm action",
+						source: "extension",
+						path: "/ext/confirm.ts",
+					},
+				]),
+			},
+		});
+
+		const promptMock = pi.service.prompt as ReturnType<typeof vi.fn>;
+		promptMock.mockImplementation(async () => {
+			const confirmed = await pi
+				.getExtensionBindings()
+				?.uiContext?.confirm("Confirm deploy", "Ship it?");
+			pi.emitTextDelta(`confirmed ${confirmed}`);
+			pi.emitAgentEnd();
+		});
+
+		const pending = bot.handleUpdate(
+			createTestUpdate({ message: { text: "/confirm" } }),
+		);
+		await nextTick();
+
+		expect(
+			api.sendMessage.mock.calls.some((call) =>
+				String(call[1]).includes("Confirm deploy"),
+			),
+		).toBe(true);
+		const confirmCallback = getReplyMarkupData(api, 0).find((data) =>
+			data?.endsWith("_yes"),
+		);
+		expect(confirmCallback).toBeTruthy();
+
+		await bot.handleUpdate(createCallbackUpdate(confirmCallback!));
+		await pending;
+
+		expect(
+			api.sendMessage.mock.calls.some((call) =>
+				String(call[1]).includes("confirmed true"),
+			),
+		).toBe(true);
+	});
+
+	it("supports extension confirm dialogs when Telegram omits callback message ids", async () => {
+		const { bot, pi, api } = setupBot({
+			piSessionOverrides: {
+				listSlashCommands: vi.fn().mockResolvedValue([
+					{
+						name: "confirm",
+						description: "Confirm action",
+						source: "extension",
+						path: "/ext/confirm.ts",
+					},
+				]),
+			},
+		});
+
+		const promptMock = pi.service.prompt as ReturnType<typeof vi.fn>;
+		promptMock.mockImplementation(async () => {
+			const confirmed = await pi
+				.getExtensionBindings()
+				?.uiContext?.confirm("Confirm deploy", "Ship it?");
+			pi.emitTextDelta(`confirmed ${confirmed}`);
+			pi.emitAgentEnd();
+		});
+
+		const pending = bot.handleUpdate(
+			createTestUpdate({ message: { text: "/confirm" } }),
+		);
+		await nextTick();
+
+		const confirmCallback = getReplyMarkupData(api, 0).find((data) =>
+			data?.endsWith("_yes"),
+		);
+		expect(confirmCallback).toBeTruthy();
+
+		await bot.handleUpdate(
+			createCallbackUpdate(confirmCallback!, {
+				callback_query: {
+					message: {
+						message_id: undefined,
+					},
+				},
+			}),
+		);
+		await pending;
+
+		expect(api.answerCallbackQuery).toHaveBeenCalledWith("cb_1", {
+			text: "Confirmed",
+		});
+		expect(
+			api.sendMessage.mock.calls.some((call) =>
+				String(call[1]).includes("confirmed true"),
+			),
+		).toBe(true);
+	});
+
+	it("supports extension input dialogs through Telegram replies", async () => {
+		const { bot, pi, api } = setupBot({
+			piSessionOverrides: {
+				listSlashCommands: vi.fn().mockResolvedValue([
+					{
+						name: "ask",
+						description: "Ask for input",
+						source: "extension",
+						path: "/ext/ask.ts",
+					},
+				]),
+			},
+		});
+
+		const promptMock = pi.service.prompt as ReturnType<typeof vi.fn>;
+		promptMock.mockImplementation(async () => {
+			const value = await pi
+				.getExtensionBindings()
+				?.uiContext?.input("Name", "Your name");
+			pi.emitTextDelta(`hello ${value}`);
+			pi.emitAgentEnd();
+		});
+
+		const pending = bot.handleUpdate(
+			createTestUpdate({ message: { text: "/ask" } }),
+		);
+		await nextTick();
+
+		expect(
+			api.sendMessage.mock.calls.some((call) =>
+				String(call[1]).includes("Name"),
+			),
+		).toBe(true);
+
+		await bot.handleUpdate(createTestUpdate({ message: { text: "Bene" } }));
+		await pending;
+
+		expect(pi.service.prompt).toHaveBeenCalledTimes(1);
+		expect(
+			api.sendMessage.mock.calls.some((call) =>
+				String(call[1]).includes("hello Bene"),
+			),
+		).toBe(true);
+	});
+
+	it("times out pending extension dialogs and finalizes them in Telegram", async () => {
+		const { bot, pi, api } = setupBot({
+			piSessionOverrides: {
+				listSlashCommands: vi.fn().mockResolvedValue([
+					{
+						name: "pick",
+						description: "Pick an option",
+						source: "extension",
+						path: "/ext/pick.ts",
+					},
+				]),
+			},
+		});
+
+		const promptMock = pi.service.prompt as ReturnType<typeof vi.fn>;
+		promptMock.mockImplementation(async () => {
+			const choice = await pi
+				.getExtensionBindings()
+				?.uiContext?.select("Pick one", ["Alpha", "Beta"], { timeout: 5 });
+			pi.emitTextDelta(`picked ${choice}`);
+			pi.emitAgentEnd();
+		});
+
+		const pending = bot.handleUpdate(
+			createTestUpdate({ message: { text: "/pick" } }),
+		);
+		await nextTick();
+		await new Promise((resolve) => setTimeout(resolve, 20));
+		await pending;
+
+		expect(
+			api.editMessageText.mock.calls.some((call) =>
+				String(call[2]).includes("Dialog timed out."),
+			),
+		).toBe(true);
+		expect(
+			api.sendMessage.mock.calls.some((call) =>
+				String(call[1]).includes("picked undefined"),
+			),
+		).toBe(true);
+	});
+
+	it("cancels pending extension dialogs via /abort and still aborts the session", async () => {
+		const { bot, pi, api } = setupBot({
+			piSessionOverrides: {
+				listSlashCommands: vi.fn().mockResolvedValue([
+					{
+						name: "confirm",
+						description: "Confirm action",
+						source: "extension",
+						path: "/ext/confirm.ts",
+					},
+				]),
+			},
+		});
+
+		const promptMock = pi.service.prompt as ReturnType<typeof vi.fn>;
+		promptMock.mockImplementation(async () => {
+			const confirmed = await pi
+				.getExtensionBindings()
+				?.uiContext?.confirm("Confirm deploy", "Ship it?");
+			pi.emitTextDelta(`confirmed ${confirmed}`);
+			pi.emitAgentEnd();
+		});
+
+		const pending = bot.handleUpdate(
+			createTestUpdate({ message: { text: "/confirm" } }),
+		);
+		await nextTick();
+		await bot.handleUpdate(createTestUpdate({ message: { text: "/abort" } }));
+		await pending;
+
+		expect(pi.service.abort).toHaveBeenCalledTimes(1);
+		expect(
+			api.editMessageText.mock.calls.some((call) =>
+				String(call[2]).includes("Dialog cancelled."),
+			),
+		).toBe(true);
+		expect(
+			api.sendMessage.mock.calls.some((call) =>
+				String(call[1]).includes("confirmed false"),
+			),
+		).toBe(true);
+	});
+
+	it("blocks voice messages while an extension input dialog is pending", async () => {
+		const { bot, pi, api } = setupBot({
+			piSessionOverrides: {
+				listSlashCommands: vi.fn().mockResolvedValue([
+					{
+						name: "ask",
+						description: "Ask for input",
+						source: "extension",
+						path: "/ext/ask.ts",
+					},
+				]),
+			},
+		});
+
+		let resolveInput!: (value: void | PromiseLike<void>) => void;
+		const promptMock = pi.service.prompt as ReturnType<typeof vi.fn>;
+		promptMock.mockImplementation(async () => {
+			await new Promise<void>(async (resolve) => {
+				resolveInput = resolve;
+				const value = await pi
+					.getExtensionBindings()
+					?.uiContext?.input("Name", "Your name");
+				pi.emitTextDelta(`hello ${value}`);
+				pi.emitAgentEnd();
+				resolve();
+			});
+		});
+
+		const pending = bot.handleUpdate(
+			createTestUpdate({ message: { text: "/ask" } }),
+		);
+		await nextTick();
+		await bot.handleUpdate(createVoiceUpdate());
+
+		expect(api.sendMessage.mock.calls.at(-1)?.[1]).toContain(
+			"Please answer the pending prompt above or use /abort.",
+		);
+		expect(transcribeAudio).not.toHaveBeenCalled();
+
+		await bot.handleUpdate(createTestUpdate({ message: { text: "Bene" } }));
+		resolveInput();
+		await pending;
+	});
+
+	it("transcribes voice messages and feeds the transcript into the prompt flow", async () => {
+		const { bot, pi, api } = setupBot();
+		const promptMock = pi.service.prompt as ReturnType<typeof vi.fn>;
+		promptMock.mockImplementation(async () => {
+			pi.emitTextDelta("Voice response");
+			pi.emitAgentEnd();
+		});
+
+		await bot.handleUpdate(createVoiceUpdate());
+
+		expect(api.getFile).toHaveBeenCalledWith("voice-file-id");
+		expect(vi.mocked(fetch)).toHaveBeenCalledWith(
+			"https://api.telegram.org/file/botbot-token/voice/file.ogg",
+		);
+		expect(transcribeAudio).toHaveBeenCalledTimes(1);
+		expect(pi.service.prompt).toHaveBeenCalledWith("transcribed text");
+		expect(
+			api.sendMessage.mock.calls.some((call) =>
+				String(call[1]).includes("🎤 transcribed text"),
+			),
+		).toBe(true);
+		expect(
+			api.sendMessage.mock.calls.some((call) =>
+				String(call[1]).includes("Voice response"),
+			),
+		).toBe(true);
+		expect(writeFile).toHaveBeenCalledTimes(1);
+		expect(unlink).toHaveBeenCalledTimes(1);
+	});
+
+	it("handles photo messages by sending caption + image input to Pi", async () => {
+		const { bot, pi, api } = setupBot();
+		api.getFile.mockImplementation(async (fileId: string) => ({
+			file_id: fileId,
+			file_path:
+				fileId === "photo-big"
+					? "images/photo-big.jpg"
+					: "images/photo-small.jpg",
+		}));
+
+		const promptMock = pi.service.prompt as ReturnType<typeof vi.fn>;
+		promptMock.mockImplementation(async () => {
+			pi.emitTextDelta("Image response");
+			pi.emitAgentEnd();
+		});
+
+		await bot.handleUpdate(createPhotoUpdate());
+
+		expect(api.getFile).toHaveBeenCalledWith("photo-big");
+		expect(pi.service.prompt).toHaveBeenCalledWith("Check this graph", [
+			{
+				type: "image",
+				data: Buffer.from("image-bytes").toString("base64"),
+				mimeType: "image/jpeg",
+			},
+		]);
+		expect(
+			api.sendMessage.mock.calls.some((call) =>
+				String(call[1]).includes("🖼️ Check this graph"),
+			),
+		).toBe(true);
+		expect(unlink).toHaveBeenCalledTimes(1);
+	});
+
+	it("handles image documents and ignores non-image documents", async () => {
+		const { bot, pi, api } = setupBot();
+		api.getFile.mockImplementation(async (fileId: string) => ({
+			file_id: fileId,
+			file_path: "docs/diagram.png",
+		}));
+
+		const promptMock = pi.service.prompt as ReturnType<typeof vi.fn>;
+		promptMock.mockImplementation(async () => {
+			pi.emitTextDelta("Document image response");
+			pi.emitAgentEnd();
+		});
+
+		await bot.handleUpdate(
+			createDocumentUpdate({ message: { caption: undefined } }),
+		);
+
+		expect(pi.service.prompt).toHaveBeenCalledWith(
+			"Please analyze this image.",
+			[
+				{
+					type: "image",
+					data: Buffer.from("image-bytes").toString("base64"),
+					mimeType: "image/png",
+				},
+			],
+		);
+		expect(
+			api.sendMessage.mock.calls.some((call) =>
+				String(call[1]).includes("Please analyze this image."),
+			),
+		).toBe(true);
+
+		await bot.handleUpdate(
+			createDocumentUpdate({
+				message: {
+					document: {
+						file_id: "document-text-id",
+						file_unique_id: "document-text-unique",
+						file_name: "notes.txt",
+						mime_type: "text/plain",
+						file_size: 128,
+					},
+				},
+			}),
+		);
+
+		expect(api.getFile).not.toHaveBeenCalledWith("document-text-id");
+		expect(pi.service.prompt).toHaveBeenCalledTimes(1);
+	});
+
+	it("blocks voice messages while processing and reports transcription failures", async () => {
+		let resolvePrompt!: () => void;
+		const busy = setupBot({
+			piSessionOverrides: {
+				prompt: vi.fn().mockImplementation(
+					() =>
+						new Promise<void>((resolve) => {
+							resolvePrompt = resolve;
+						}),
+				),
+			},
+		});
+
+		const pending = busy.bot.handleUpdate(
+			createTestUpdate({ message: { text: "first" } }),
+		);
+		await nextTick();
+		await busy.bot.handleUpdate(createVoiceUpdate());
+
+		expect(busy.api.sendMessage.mock.calls.at(-1)?.[1]).toContain(
+			"Still working on previous message...",
+		);
+		expect(transcribeAudio).not.toHaveBeenCalled();
+
+		resolvePrompt();
+		await pending;
+
+		vi.mocked(transcribeAudio).mockRejectedValueOnce(
+			new Error("backend missing"),
+		);
+		const failure = setupBot();
+		await failure.bot.handleUpdate(createVoiceUpdate());
+
+		expect(
+			failure.api.sendMessage.mock.calls.some((call) =>
+				String(call[1]).includes("Transcription failed:"),
+			),
+		).toBe(true);
+		expect(failure.pi.service.prompt).not.toHaveBeenCalled();
+		expect(unlink).toHaveBeenCalled();
+	});
+
+	it("auto-creates a session for audio files before prompting", async () => {
+		const noSession = setupBot({
+			piSessionOverrides: {
+				hasActiveSession: vi.fn().mockReturnValue(false),
+			},
+		});
+		const promptMock = noSession.pi.service.prompt as ReturnType<typeof vi.fn>;
+		promptMock.mockImplementation(async () => {
+			noSession.pi.emitTextDelta("Audio response");
+			noSession.pi.emitAgentEnd();
+		});
+
+		await noSession.bot.handleUpdate(
+			createVoiceUpdate({
+				message: {
+					voice: undefined,
+					audio: {
+						file_id: "audio-file-id",
+						file_unique_id: "audio-unique",
+						duration: 6,
+						mime_type: "audio/ogg",
+						file_name: "clip.ogg",
+					},
+				},
+			}),
+		);
+
+		expect(noSession.api.getFile).toHaveBeenCalledWith("audio-file-id");
+		expect(noSession.pi.service.newSession).toHaveBeenCalledTimes(1);
+		expect(noSession.pi.service.prompt).toHaveBeenCalledWith(
+			"transcribed text",
+		);
+	});
+
+	it("blocks new messages while processing and auto-creates a session when needed", async () => {
+		let resolvePrompt!: () => void;
+		const busy = setupBot({
+			piSessionOverrides: {
+				prompt: vi.fn().mockImplementation(
+					() =>
+						new Promise<void>((resolve) => {
+							resolvePrompt = resolve;
+						}),
+				),
+			},
+		});
+
+		const first = busy.bot.handleUpdate(
+			createTestUpdate({ message: { text: "first" } }),
+		);
+		await nextTick();
+		await busy.bot.handleUpdate(
+			createTestUpdate({ message: { text: "second" } }),
+		);
+
+		expect(busy.api.sendMessage.mock.calls.at(-1)?.[1]).toContain(
+			"Still working on previous message...",
+		);
+
+		resolvePrompt();
+		await first;
+
+		const noSession = setupBot({
+			piSessionOverrides: {
+				hasActiveSession: vi.fn().mockReturnValue(false),
+			},
+		});
+		const promptMock = noSession.pi.service.prompt as ReturnType<typeof vi.fn>;
+		promptMock.mockImplementation(async () => {
+			noSession.pi.emitTextDelta("Fresh session response");
+			noSession.pi.emitAgentEnd();
+		});
+
+		await noSession.bot.handleUpdate(
+			createTestUpdate({ message: { text: "start over" } }),
+		);
+
+		expect(noSession.pi.service.newSession).toHaveBeenCalledTimes(1);
+		expect(noSession.pi.service.prompt).toHaveBeenCalledWith("start over");
+	});
+
+	it("blocks commands while switching sessions", async () => {
+		let resolveSwitch!: (info: SwitchResult) => void;
+		const { bot, api } = setupBot({
+			piSessionOverrides: {
+				switchSession: vi.fn().mockImplementation(
+					() =>
+						new Promise<SwitchResult>((resolve) => {
+							resolveSwitch = resolve;
+						}),
+				),
+			},
+		});
+
+		const switching = bot.handleUpdate(
+			createTestUpdate({ message: { text: "/sessions /saved/session.jsonl" } }),
+		);
+		await nextTick();
+		await bot.handleUpdate(createTestUpdate({ message: { text: "/new" } }));
+
+		expect(api.sendMessage.mock.calls.at(-1)?.[1]).toContain(
+			"Cannot create new session while a prompt is running.",
+		);
+
+		resolveSwitch({
+			sessionId: "switched-id",
+			sessionFile: "/tmp/switched.jsonl",
+			workspace: "/other",
+			model: "anthropic/claude-sonnet-4-5",
+			cancelled: false,
+		});
+		await switching;
+	});
+
+	it("blocks tree commands while processing or switching", async () => {
+		let resolvePrompt!: () => void;
+		const busy = setupBot({
+			piSessionOverrides: {
+				prompt: vi.fn().mockImplementation(
+					() =>
+						new Promise<void>((resolve) => {
+							resolvePrompt = resolve;
+						}),
+				),
+			},
+		});
+
+		const pending = busy.bot.handleUpdate(
+			createTestUpdate({ message: { text: "hello" } }),
+		);
+		await nextTick();
+		await busy.bot.handleUpdate(
+			createTestUpdate({ message: { text: "/tree" } }),
+		);
+		await busy.bot.handleUpdate(
+			createTestUpdate({ message: { text: "/branch branch111" } }),
+		);
+		await busy.bot.handleUpdate(
+			createTestUpdate({ message: { text: "/label mark" } }),
+		);
+		await busy.bot.handleUpdate(createCallbackUpdate("tree_nav_branch111"));
+
+		expect(
+			busy.api.sendMessage.mock.calls.some((call) =>
+				String(call[1]).includes("Cannot view tree while a prompt is running."),
+			),
+		).toBe(true);
+		expect(
+			busy.api.sendMessage.mock.calls.some((call) =>
+				String(call[1]).includes("Cannot navigate while a prompt is running."),
+			),
+		).toBe(true);
+		expect(
+			busy.api.sendMessage.mock.calls.some((call) =>
+				String(call[1]).includes(
+					"Cannot label entries while a prompt is running.",
+				),
+			),
+		).toBe(true);
+		expect(busy.api.answerCallbackQuery).toHaveBeenCalledWith("cb_1", {
+			text: "Wait for the current prompt to finish",
+		});
+
+		resolvePrompt();
+		await pending;
+	});
+
+	it("surfaces startup error diagnostics once before the first prompt in a fresh context", async () => {
+		const topicKey = makeContextKey(ALLOWED_CHAT_ID, 909);
+		let registryRef: ReturnType<typeof createMockPiSessionRegistry> | undefined;
+		const prompt = vi.fn().mockImplementation(async () => {
+			const topicSession = registryRef?.getSession(ALLOWED_CHAT_ID, 909);
+			topicSession?.emitTextDelta("Fresh context response");
+			topicSession?.emitAgentEnd();
+		});
+		const harness = setupBot({
+			perContextSessionOverrides: {
+				[topicKey]: {
+					getInfo: vi.fn().mockReturnValue({
+						sessionId: "diagnostic-session",
+						sessionFile: "/tmp/diagnostic.jsonl",
+						workspace: "/workspace",
+						model: "anthropic/claude-sonnet-4-5",
+						diagnostics: [
+							{
+								type: "error",
+								message: 'Failed to load extension "/ext/bad.ts": boom',
+							},
+							{
+								type: "warning",
+								message:
+									"Theme issue (/themes/missing.json): theme path does not exist",
+							},
+						],
+					}),
+					prompt,
+				},
+			},
+		});
+		registryRef = harness.registry;
+		const { bot, api } = harness;
+
+		await bot.handleUpdate(
+			createTestUpdate({
+				message: {
+					text: "first prompt",
+					chat: { id: ALLOWED_CHAT_ID, type: "supergroup" },
+					message_thread_id: 909,
+				},
+			}),
+		);
+		await bot.handleUpdate(
+			createTestUpdate({
+				message: {
+					text: "second prompt",
+					chat: { id: ALLOWED_CHAT_ID, type: "supergroup" },
+					message_thread_id: 909,
+				},
+			}),
+		);
+
+		const startupMessages = api.sendMessage.mock.calls
+			.map((call) => String(call[1]))
+			.filter((text) => text.includes("Session startup issues"));
+		expect(startupMessages).toHaveLength(1);
+		expect(startupMessages[0]).toContain(
+			'Failed to load extension "/ext/bad.ts": boom',
+		);
+		expect(startupMessages[0]).not.toContain("Theme issue");
+	});
+
+	it("surfaces startup error diagnostics when /model creates a fresh session context", async () => {
+		const topicKey = makeContextKey(ALLOWED_CHAT_ID, 910);
+		const { bot, api } = setupBot({
+			perContextSessionOverrides: {
+				[topicKey]: {
+					getInfo: vi.fn().mockReturnValue({
+						sessionId: "model-diagnostic-session",
+						sessionFile: "/tmp/model-diagnostic.jsonl",
+						workspace: "/workspace",
+						model: "anthropic/claude-sonnet-4-5",
+						diagnostics: [
+							{
+								type: "error",
+								message:
+									"Prompt issue (/prompts/deploy.md): invalid frontmatter",
+							},
+						],
+					}),
+				},
+			},
+		});
+
+		await bot.handleUpdate(
+			createTestUpdate({
+				message: {
+					text: "/model",
+					chat: { id: ALLOWED_CHAT_ID, type: "supergroup" },
+					message_thread_id: 910,
+				},
+			}),
+		);
+
+		expect(
+			api.sendMessage.mock.calls.some((call) =>
+				String(call[1]).includes("Session startup issues"),
+			),
+		).toBe(true);
+		expect(
+			api.sendMessage.mock.calls.some((call) =>
+				String(call[1]).includes(
+					"Prompt issue (/prompts/deploy.md): invalid frontmatter",
+				),
+			),
+		).toBe(true);
+		expect(
+			api.sendMessage.mock.calls.some((call) =>
+				String(call[1]).includes("Select a model"),
+			),
+		).toBe(true);
+	});
+
+	it("re-surfaces startup diagnostics after /handback tears down the context", async () => {
+		const topicKey = makeContextKey(ALLOWED_CHAT_ID, 911);
+		let registryRef: ReturnType<typeof createMockPiSessionRegistry> | undefined;
+		const prompt = vi.fn().mockImplementation(async () => {
+			const session = registryRef?.getSession(ALLOWED_CHAT_ID, 911);
+			session?.emitTextDelta("Context rebuilt response");
+			session?.emitAgentEnd();
+		});
+		const harness = setupBot({
+			perContextSessionOverrides: {
+				[topicKey]: {
+					getInfo: vi.fn().mockReturnValue({
+						sessionId: "reused-diagnostic-session",
+						sessionFile: "/tmp/reused-diagnostic.jsonl",
+						workspace: "/workspace",
+						model: "anthropic/claude-sonnet-4-5",
+						diagnostics: [
+							{
+								type: "error",
+								message: "Extension issue (/ext/reload.ts): startup failed",
+							},
+						],
+					}),
+					prompt,
+				},
+			},
+		});
+		registryRef = harness.registry;
+		const { bot, api } = harness;
+		const topicMessage = (text: string) =>
+			createTestUpdate({
+				message: {
+					text,
+					chat: { id: ALLOWED_CHAT_ID, type: "supergroup" },
+					message_thread_id: 911,
+				},
+			});
+
+		await bot.handleUpdate(topicMessage("first prompt"));
+		await bot.handleUpdate(topicMessage("/handback"));
+		await bot.handleUpdate(topicMessage("second prompt"));
+
+		const startupMessages = api.sendMessage.mock.calls
+			.map((call) => String(call[1]))
+			.filter((text) => text.includes("Session startup issues"));
+		expect(startupMessages).toHaveLength(2);
+		expect(startupMessages[0]).toContain(
+			"Extension issue (/ext/reload.ts): startup failed",
+		);
+		expect(startupMessages[1]).toContain(
+			"Extension issue (/ext/reload.ts): startup failed",
+		);
+	});
+
+	it("covers additional command edge cases", async () => {
+		const noSessions = setupBot({
+			piSessionOverrides: {
+				listAllSessions: vi.fn().mockResolvedValue([]),
+			},
+		});
+		await noSessions.bot.handleUpdate(
+			createTestUpdate({ message: { text: "/sessions" } }),
+		);
+		expect(noSessions.api.sendMessage.mock.calls[0]?.[1]).toContain(
+			"No saved sessions found.",
+		);
+
+		const cancelledNew = setupBot({
+			piSessionOverrides: {
+				listWorkspaces: vi.fn().mockResolvedValue(["/workspace/A"]),
+				newSession: vi.fn().mockResolvedValue({
+					info: {
+						sessionId: "cancelled",
+						sessionFile: "/tmp/cancelled.jsonl",
+						workspace: "/workspace/A",
+						model: "anthropic/claude-sonnet-4-5",
+					},
+					created: false,
+				}),
+			},
+		});
+		await cancelledNew.bot.handleUpdate(
+			createTestUpdate({ message: { text: "/new" } }),
+		);
+		expect(cancelledNew.api.sendMessage.mock.calls[0]?.[1]).toContain(
+			"New session was cancelled.",
+		);
+
+		const failedNew = setupBot({
+			piSessionOverrides: {
+				listWorkspaces: vi.fn().mockResolvedValue(["/workspace/A"]),
+				newSession: vi.fn().mockRejectedValue(new Error("new failed")),
+			},
+		});
+		await failedNew.bot.handleUpdate(
+			createTestUpdate({ message: { text: "/new" } }),
+		);
+		expect(failedNew.api.sendMessage.mock.calls[0]?.[1]).toContain(
+			"new failed",
+		);
+
+		const sameWorkspaceNewUnavailable = setupBot({
+			piSessionOverrides: {
+				listWorkspaces: vi.fn().mockResolvedValue(["/workspace/A"]),
+				newSession: vi
+					.fn()
+					.mockRejectedValue(
+						new Error(
+							"Starting a fresh session in the current workspace isn't available in this TelePi version yet.",
+						),
+					),
+			},
+		});
+		await sameWorkspaceNewUnavailable.bot.handleUpdate(
+			createTestUpdate({ message: { text: "/new" } }),
+		);
+		expect(
+			sameWorkspaceNewUnavailable.api.sendMessage.mock.calls[0]?.[1],
+		).toContain(
+			"Starting a fresh session in the current workspace isn't available in this TelePi version yet.",
+		);
+		expect(
+			sameWorkspaceNewUnavailable.api.sendMessage.mock.calls[0]?.[1],
+		).not.toContain("AgentSessionRuntime migration");
+
+		const failedModelBootstrap = setupBot({
+			piSessionOverrides: {
+				hasActiveSession: vi.fn().mockReturnValue(false),
+				newSession: vi.fn().mockRejectedValue(new Error("bootstrap failed")),
+			},
+		});
+		await failedModelBootstrap.bot.handleUpdate(
+			createTestUpdate({ message: { text: "/model" } }),
+		);
+		expect(failedModelBootstrap.api.sendMessage.mock.calls[0]?.[1]).toContain(
+			"Failed to create session",
+		);
+		expect(failedModelBootstrap.api.sendMessage.mock.calls[0]?.[1]).toContain(
+			"bootstrap failed",
+		);
+
+		const noModels = setupBot({
+			piSessionOverrides: {
+				listModels: vi.fn().mockResolvedValue([]),
+			},
+		});
+		await noModels.bot.handleUpdate(
+			createTestUpdate({ message: { text: "/model" } }),
+		);
+		expect(noModels.api.sendMessage.mock.calls[0]?.[1]).toContain(
+			"No models available.",
+		);
+	});
+
+	it("expires page callbacks when the original picker state is gone", async () => {
+		const { bot, api } = setupBot();
+
+		await bot.handleUpdate(createCallbackUpdate("switch_page_1"));
+		expect(api.answerCallbackQuery).toHaveBeenCalledWith("cb_1", {
+			text: "Expired, run /sessions again",
+		});
+
+		api.answerCallbackQuery.mockClear();
+		await bot.handleUpdate(createCallbackUpdate("newws_page_1"));
+		expect(api.answerCallbackQuery).toHaveBeenCalledWith("cb_1", {
+			text: "Expired, run /new again",
+		});
+
+		api.answerCallbackQuery.mockClear();
+		await bot.handleUpdate(createCallbackUpdate("model_page_1"));
+		expect(api.answerCallbackQuery).toHaveBeenCalledWith("cb_1", {
+			text: "Expired, run /model again",
+		});
+
+		api.answerCallbackQuery.mockClear();
+		await bot.handleUpdate(createCallbackUpdate("model_show_all"));
+		expect(api.answerCallbackQuery).toHaveBeenCalledWith("cb_1", {
+			text: "Expired, run /model again",
+		});
+
+		api.answerCallbackQuery.mockClear();
+		await bot.handleUpdate(createCallbackUpdate("tree_page_1"));
+		expect(api.answerCallbackQuery).toHaveBeenCalledWith("cb_1", {
+			text: "Expired, run /tree again",
+		});
+
+		api.answerCallbackQuery.mockClear();
+		await bot.handleUpdate(createCallbackUpdate("branch_page_1"));
+		expect(api.answerCallbackQuery).toHaveBeenCalledWith("cb_1", {
+			text: "Expired, run /branch again",
+		});
+	});
+
+	it("handles noop_page callback without editing the message", async () => {
+		const { bot, api } = setupBot();
+
+		await bot.handleUpdate(createCallbackUpdate("noop_page"));
+		expect(api.answerCallbackQuery).toHaveBeenCalledWith("cb_1", {});
+		expect(api.editMessageText).not.toHaveBeenCalled();
+		expect(api.editMessageReplyMarkup).not.toHaveBeenCalled();
+	});
+
+	it("handles callback edge cases and the abort button", async () => {
+		const abortCallback = setupBot();
+		await abortCallback.bot.handleUpdate(createCallbackUpdate("pi_abort"));
+		expect(abortCallback.api.answerCallbackQuery).toHaveBeenCalledWith("cb_1", {
+			text: "Aborting...",
+		});
+		expect(abortCallback.pi.service.abort).toHaveBeenCalledTimes(1);
+
+		const expiredWorkspace = setupBot();
+		await expiredWorkspace.bot.handleUpdate(createCallbackUpdate("newws_0"));
+		expect(expiredWorkspace.api.answerCallbackQuery).toHaveBeenCalledWith(
+			"cb_1",
+			{
+				text: "Expired, run /new again",
+			},
+		);
+
+		const cancelledWorkspace = setupBot({
+			piSessionOverrides: {
+				newSession: vi.fn().mockResolvedValue({
+					info: {
+						sessionId: "cancelled",
+						sessionFile: "/tmp/cancelled.jsonl",
+						workspace: "/workspace/B",
+						model: "anthropic/claude-sonnet-4-5",
+					},
+					created: false,
+				}),
+			},
+		});
+		await cancelledWorkspace.bot.handleUpdate(
+			createTestUpdate({ message: { text: "/new" } }),
+		);
+		await cancelledWorkspace.bot.handleUpdate(createCallbackUpdate("newws_1"));
+		expect(
+			cancelledWorkspace.api.editMessageText.mock.calls.at(-1)?.[2],
+		).toContain("New session was cancelled.");
+
+		const expiredModel = setupBot();
+		await expiredModel.bot.handleUpdate(createCallbackUpdate("model_0"));
+		expect(expiredModel.api.answerCallbackQuery).toHaveBeenCalledWith("cb_1", {
+			text: "Expired, run /model again",
+		});
+
+		const failedModel = setupBot({
+			piSessionOverrides: {
+				setModel: vi.fn().mockRejectedValue(new Error("model failed")),
+			},
+		});
+		await failedModel.bot.handleUpdate(
+			createTestUpdate({ message: { text: "/model" } }),
+		);
+		await failedModel.bot.handleUpdate(createCallbackUpdate("model_1"));
+		expect(failedModel.api.editMessageText.mock.calls.at(-1)?.[2]).toContain(
+			"model failed",
+		);
+	});
+
+	it("summarizes tool usage, reports tool errors, and handles prompt failures", async () => {
+		const summary = setupBot();
+		const summaryPrompt = summary.pi.service.prompt as ReturnType<typeof vi.fn>;
+		summaryPrompt.mockImplementation(async () => {
+			summary.pi.emitTextDelta("Finished response");
+			summary.pi.emitToolStart("bash", "tool-1");
+			summary.pi.emitToolStart("read", "tool-2");
+			summary.pi.emitToolStart("bash", "tool-3");
+			summary.pi.emitAgentEnd();
+		});
+		await summary.bot.handleUpdate(
+			createTestUpdate({ message: { text: "summarize" } }),
+		);
+		expect(
+			summary.api.editMessageText.mock.calls.some((call) =>
+				String(call[2]).includes("bash ×2, read"),
+			),
+		).toBe(true);
+
+		const errorsOnly = setupBot({
+			configOverrides: { toolVerbosity: "errors-only" },
+		});
+		const errorsOnlyPrompt = errorsOnly.pi.service.prompt as ReturnType<
+			typeof vi.fn
+		>;
+		errorsOnlyPrompt.mockImplementation(async () => {
+			errorsOnly.pi.emitTextDelta("Answer");
+			errorsOnly.pi.emitToolStart("bash", "tool-1");
+			errorsOnly.pi.emitToolUpdate("tool-1", "stderr");
+			errorsOnly.pi.emitToolEnd("tool-1", true);
+			errorsOnly.pi.emitAgentEnd();
+		});
+		await errorsOnly.bot.handleUpdate(
+			createTestUpdate({ message: { text: "show tool error" } }),
+		);
+		expect(
+			errorsOnly.api.sendMessage.mock.calls.some((call) =>
+				String(call[1]).includes("❌"),
+			),
+		).toBe(true);
+
+		const failure = setupBot();
+		const failurePrompt = failure.pi.service.prompt as ReturnType<typeof vi.fn>;
+		failurePrompt.mockImplementation(async () => {
+			failure.pi.emitTextDelta("Partial output");
+			throw new Error("prompt failed");
+		});
+		await failure.bot.handleUpdate(
+			createTestUpdate({ message: { text: "break" } }),
+		);
+		expect(
+			failure.api.editMessageText.mock.calls.some((call) =>
+				String(call[2]).includes("⚠️ prompt failed"),
+			),
+		).toBe(true);
+
+		const aborted = setupBot();
+		const abortedPrompt = aborted.pi.service.prompt as ReturnType<typeof vi.fn>;
+		abortedPrompt.mockImplementation(async () => {
+			aborted.pi.emitTextDelta("Partial output");
+			throw new Error("Abort requested");
+		});
+		await aborted.bot.handleUpdate(
+			createTestUpdate({ message: { text: "stop" } }),
+		);
+		expect(
+			aborted.api.editMessageText.mock.calls.some((call) =>
+				String(call[2]).includes("⏹ Aborted"),
+			),
+		).toBe(true);
+	});
+
+	it("handles Telegram parse fallbacks and long streaming responses", async () => {
+		const sendFallback = setupBot();
+		sendFallback.api.sendMessage
+			.mockRejectedValueOnce(new Error("can't parse entities"))
+			.mockImplementation(
+				async (chatId: number | string, text: string, opts?: any) => ({
+					message_id: 99,
+					chat: { id: chatId },
+					text,
+					...opts,
+				}),
+			);
+		await sendFallback.bot.handleUpdate(
+			createTestUpdate({ message: { text: "/start" } }),
+		);
+		expect(sendFallback.api.sendMessage).toHaveBeenCalledTimes(2);
+		expect(
+			sendFallback.api.sendMessage.mock.calls[1]?.[2]?.parse_mode,
+		).toBeUndefined();
+
+		const editFallback = setupBot();
+		editFallback.api.editMessageText
+			.mockRejectedValueOnce(new Error("unsupported start tag"))
+			.mockResolvedValue(true);
+		await editFallback.bot.handleUpdate(
+			createTestUpdate({ message: { text: "/model" } }),
+		);
+		await editFallback.bot.handleUpdate(createCallbackUpdate("model_1"));
+		expect(editFallback.api.editMessageText).toHaveBeenCalledTimes(2);
+		expect(
+			editFallback.api.editMessageText.mock.calls[1]?.[3]?.parse_mode,
+		).toBeUndefined();
+
+		const notModified = setupBot();
+		notModified.api.editMessageText.mockRejectedValueOnce(
+			new Error("message is not modified"),
+		);
+		await notModified.bot.handleUpdate(
+			createTestUpdate({ message: { text: "/model" } }),
+		);
+		await notModified.bot.handleUpdate(createCallbackUpdate("model_1"));
+		expect(notModified.api.editMessageText).toHaveBeenCalledTimes(1);
+
+		const longResponse = setupBot();
+		const longPrompt = longResponse.pi.service.prompt as ReturnType<
+			typeof vi.fn
+		>;
+		const longChunk = "word ".repeat(900);
+		longPrompt.mockImplementation(async () => {
+			longResponse.pi.emitTextDelta(`${longChunk}${longChunk}`);
+			longResponse.pi.emitTextDelta(`${longChunk}${longChunk}`);
+			longResponse.pi.emitAgentEnd();
+		});
+		await longResponse.bot.handleUpdate(
+			createTestUpdate({ message: { text: "long reply" } }),
+		);
+		expect(
+			longResponse.api.sendMessage.mock.calls.some((call) =>
+				String(call[1]).includes("preview truncated"),
+			),
+		).toBe(true);
+		expect(longResponse.api.sendMessage.mock.calls.length).toBeGreaterThan(1);
+	});
+
+	it("registers bot commands", async () => {
+		const { bot, api } = setupBot();
+
+		await registerCommands(bot);
+
+		expect(api.setMyCommands).toHaveBeenCalledWith(
+			[
+				{ command: "start", description: "Welcome and session info" },
+				{ command: "help", description: "Show commands and usage tips" },
+				{ command: "commands", description: "Browse TelePi and Pi commands" },
+				{ command: "new", description: "Start a new session" },
+				{
+					command: "retry",
+					description: "Retry the last prompt in this chat/topic",
+				},
+				{ command: "handback", description: "Hand session back to Pi CLI" },
+				{ command: "abort", description: "Cancel current operation" },
+				{ command: "session", description: "Current session details" },
+				{
+					command: "sessions",
+					description: "List and switch sessions (or /sessions <path|id>)",
+				},
+				{
+					command: "context",
+					description: "Show context usage and session stats",
+				},
+				{ command: "model", description: "Switch AI model" },
+				{ command: "tree", description: "View and navigate the session tree" },
+				{
+					command: "branch",
+					description: "Navigate to a tree entry (/branch <id>)",
+				},
+				{
+					command: "label",
+					description: "Label an entry (/label [name] or /label <id> <name>)",
+				},
+			],
+			undefined,
+		);
+	});
+
+	it("blocks commands when piSession.isStreaming() returns true", async () => {
+		const streaming = setupBot({
+			piSessionOverrides: {
+				isStreaming: vi.fn().mockReturnValue(true),
+			},
+		});
+
+		// /sessions should be blocked
+		await streaming.bot.handleUpdate(
+			createTestUpdate({ message: { text: "/sessions" } }),
+		);
+		expect(streaming.api.sendMessage.mock.calls[0]?.[1]).toContain(
+			"Cannot switch sessions while a prompt is running.",
+		);
+
+		// /new should be blocked
+		await streaming.bot.handleUpdate(
+			createTestUpdate({ message: { text: "/new" } }),
+		);
+		expect(streaming.api.sendMessage.mock.calls[1]?.[1]).toContain(
+			"Cannot create new session while a prompt is running.",
+		);
+
+		// /handback should be blocked
+		await streaming.bot.handleUpdate(
+			createTestUpdate({ message: { text: "/handback" } }),
+		);
+		expect(streaming.api.sendMessage.mock.calls[2]?.[1]).toContain(
+			"Cannot hand back while a prompt is running.",
+		);
+
+		// tree commands should be blocked
+		await streaming.bot.handleUpdate(
+			createTestUpdate({ message: { text: "/tree" } }),
+		);
+		expect(streaming.api.sendMessage.mock.calls[3]?.[1]).toContain(
+			"Cannot view tree while a prompt is running.",
+		);
+		await streaming.bot.handleUpdate(
+			createTestUpdate({ message: { text: "/branch branch111" } }),
+		);
+		expect(streaming.api.sendMessage.mock.calls[4]?.[1]).toContain(
+			"Cannot navigate while a prompt is running.",
+		);
+		await streaming.bot.handleUpdate(
+			createTestUpdate({ message: { text: "/label saved" } }),
+		);
+		expect(streaming.api.sendMessage.mock.calls[5]?.[1]).toContain(
+			"Cannot label entries while a prompt is running.",
+		);
+
+		// text messages should be blocked
+		await streaming.bot.handleUpdate(
+			createTestUpdate({ message: { text: "hello there" } }),
+		);
+		expect(streaming.api.sendMessage.mock.calls[6]?.[1]).toContain(
+			"Still working on previous message...",
+		);
+
+		await streaming.bot.handleUpdate(
+			createCallbackUpdate("tree_nav_branch111"),
+		);
+		expect(streaming.api.answerCallbackQuery).toHaveBeenCalledWith("cb_1", {
+			text: "Wait for the current prompt to finish",
+		});
+	});
+
+	it("sends '✅ Done' when agent ends with no text output", async () => {
+		const { bot, pi, api } = setupBot();
+		const promptMock = pi.service.prompt as ReturnType<typeof vi.fn>;
+		promptMock.mockImplementation(async () => {
+			// Agent ends without emitting any text deltas
+			pi.emitAgentEnd();
+		});
+
+		await bot.handleUpdate(
+			createTestUpdate({ message: { text: "do something silent" } }),
+		);
+
+		const allSentTexts = api.sendMessage.mock.calls.map((call) =>
+			String(call[1]),
+		);
+		expect(allSentTexts.some((text) => text.includes("✅ Done"))).toBe(true);
+	});
+
+	it("handles in-memory handback (no sessionFile)", async () => {
+		const { bot, api, registry } = setupBot({
+			piSessionOverrides: {
+				handback: vi.fn().mockResolvedValue({
+					sessionFile: undefined,
+					workspace: "/workspace",
+				}),
+			},
+		});
+
+		await bot.handleUpdate(
+			createTestUpdate({ message: { text: "/handback" } }),
+		);
+
+		expect(api.sendMessage.mock.calls[0]?.[1]).toContain(
+			"Session was in-memory",
+		);
+		expect(api.sendMessage.mock.calls[0]?.[1]).toContain("No file to resume");
+		expect(
+			registry.registry.remove as ReturnType<typeof vi.fn>,
+		).toHaveBeenCalledWith({
+			chatId: ALLOWED_CHAT_ID,
+		});
+	});
+
+	it("handles handback error", async () => {
+		const { bot, api } = setupBot({
+			piSessionOverrides: {
+				handback: vi.fn().mockRejectedValue(new Error("dispose exploded")),
+			},
+		});
+
+		await bot.handleUpdate(
+			createTestUpdate({ message: { text: "/handback" } }),
+		);
+
+		expect(api.sendMessage.mock.calls[0]?.[1]).toContain("Failed:");
+		expect(api.sendMessage.mock.calls[0]?.[1]).toContain("dispose exploded");
+	});
+
+	it("blocks text messages when isSwitching is active", async () => {
+		let resolveSwitch!: (info: SwitchResult) => void;
+		const { bot, api } = setupBot({
+			piSessionOverrides: {
+				switchSession: vi.fn().mockImplementation(
+					() =>
+						new Promise<SwitchResult>((resolve) => {
+							resolveSwitch = resolve;
+						}),
+				),
+			},
+		});
+
+		// Start a switch via /sessions <path>
+		const switching = bot.handleUpdate(
+			createTestUpdate({ message: { text: "/sessions /saved/session.jsonl" } }),
+		);
+		await nextTick();
+
+		// Try to send a text message — should be blocked
+		await bot.handleUpdate(
+			createTestUpdate({ message: { text: "hello there" } }),
+		);
+		expect(api.sendMessage.mock.calls.at(-1)?.[1]).toContain(
+			"Still working on previous message...",
+		);
+
+		resolveSwitch({
+			sessionId: "switched-id",
+			sessionFile: "/tmp/switched.jsonl",
+			workspace: "/other",
+			model: "anthropic/claude-sonnet-4-5",
+			cancelled: false,
+		});
+		await switching;
+	});
+
+	it("handles switch callback error", async () => {
+		const { bot, api } = setupBot({
+			piSessionOverrides: {
+				switchSession: vi.fn().mockRejectedValue(new Error("switch exploded")),
+			},
+		});
+
+		// Set up picks first
+		await bot.handleUpdate(
+			createTestUpdate({ message: { text: "/sessions" } }),
+		);
+		// Now click a switch button
+		await bot.handleUpdate(createCallbackUpdate("switch_0"));
+
+		expect(api.editMessageText.mock.calls.at(-1)?.[2]).toContain("Failed:");
+		expect(api.editMessageText.mock.calls.at(-1)?.[2]).toContain(
+			"switch exploded",
+		);
+	});
+
+	it("handles newws callback error", async () => {
+		const { bot, api } = setupBot({
+			piSessionOverrides: {
+				newSession: vi.fn().mockRejectedValue(new Error("create exploded")),
+			},
+		});
+
+		// Set up workspace picks
+		await bot.handleUpdate(createTestUpdate({ message: { text: "/new" } }));
+		// Click a workspace button
+		await bot.handleUpdate(createCallbackUpdate("newws_0"));
+
+		expect(api.editMessageText.mock.calls.at(-1)?.[2]).toContain("Failed:");
+		expect(api.editMessageText.mock.calls.at(-1)?.[2]).toContain(
+			"create exploded",
+		);
+	});
+
+	it("shows context usage with /context command", async () => {
+		const { bot, api } = setupBot({
+			piSessionOverrides: {
+				getContextUsage: vi.fn().mockReturnValue({
+					tokens: 15000,
+					contextWindow: 128000,
+					percent: 11.72,
+				}),
+				getSessionStats: vi.fn().mockReturnValue({
+					userMessages: 10,
+					assistantMessages: 10,
+					toolCalls: 25,
+					toolResults: 25,
+					totalMessages: 40,
+					tokens: {
+						input: 120000,
+						output: 30000,
+						cacheRead: 5000,
+						cacheWrite: 2000,
+						total: 157000,
+					},
+					cost: 0.12,
+					contextUsage: {
+						tokens: 15000,
+						contextWindow: 128000,
+						percent: 11.72,
+					},
+					sessionFile: "/tmp/session.jsonl",
+					sessionId: "test-session",
+				}),
+			},
+		});
+
+		await bot.handleUpdate(createTestUpdate({ message: { text: "/context" } }));
+
+		const sentText = String(api.sendMessage.mock.calls[0]?.[1]);
+		expect(sentText).toContain("Context Usage");
+		expect(sentText).toContain("15,000");
+		expect(sentText).toContain("128,000");
+		expect(sentText).toContain("11.72%");
+		expect(sentText).toContain("Session Stats");
+		expect(sentText).toContain("10");
+		expect(sentText).toContain("user");
+		expect(sentText).toContain("25");
+		expect(sentText).toContain("$0.1200");
+	});
+
+	it("shows 'no active session' with /context when session is missing", async () => {
+		const { bot, api } = setupBot({
+			piSessionOverrides: {
+				hasActiveSession: vi.fn().mockReturnValue(false),
+				getContextUsage: vi.fn().mockReturnValue(undefined),
+				getSessionStats: vi.fn().mockReturnValue(undefined),
+			},
+		});
+
+		await bot.handleUpdate(createTestUpdate({ message: { text: "/context" } }));
+
+		const sentText = String(api.sendMessage.mock.calls[0]?.[1]);
+		expect(sentText).toContain("No active session");
+	});
 });
