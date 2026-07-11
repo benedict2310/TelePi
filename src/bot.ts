@@ -1,4 +1,5 @@
 import { readFile, unlink } from "node:fs/promises";
+import type { ThinkingLevel } from "@earendil-works/pi-agent-core";
 import type { ImageContent } from "@earendil-works/pi-ai";
 import type { SlashCommandInfo } from "@earendil-works/pi-coding-agent";
 import { autoRetry } from "@grammyjs/auto-retry";
@@ -664,6 +665,44 @@ export function createBot(
 		handleLabelCommand,
 	} = treeCommandHandlers;
 
+	const handleThinkingCommand = async (
+		ctx: Context,
+		target: PiSessionContext,
+	): Promise<void> => {
+		const piSession = await ensureActiveSession(ctx, target);
+		if (!piSession) return;
+
+		const levels = piSession.getThinkingLevels();
+		if (levels.length === 0) {
+			await safeReply(
+				ctx,
+				"No thinking levels available for the current model.",
+				{ fallbackText: "No thinking levels available for the current model." },
+				target,
+			);
+			return;
+		}
+
+		const current = piSession.getThinkingLevel();
+		const keyboard = new InlineKeyboard();
+		levels.forEach((level, index) => {
+			keyboard.text(
+				`${level === current ? "✅ " : ""}${level}`,
+				`thinking_${level}`,
+			);
+			if (index % 2 === 1) keyboard.row();
+		});
+		await safeReply(
+			ctx,
+			`<b>Select a thinking level</b>\nCurrent: <code>${escapeHTML(current)}</code>`,
+			{
+				fallbackText: `Select a thinking level\nCurrent: ${current}`,
+				replyMarkup: keyboard,
+			},
+			target,
+		);
+	};
+
 	async function runTelePiPickerCommand(
 		ctx: Context,
 		target: PiSessionContext,
@@ -696,6 +735,9 @@ export function createBot(
 				return;
 			case "model":
 				await handleModelCommand(ctx, target);
+				return;
+			case "thinking":
+				await handleThinkingCommand(ctx, target);
 				return;
 			case "tree":
 				await handleTreeCommand(ctx, target, "/tree");
@@ -817,6 +859,12 @@ export function createBot(
 		}
 
 		await handleModelCommand(ctx, target);
+	});
+
+	bot.command("thinking", async (ctx) => {
+		const target = getTelegramTarget(ctx);
+		if (!target) return;
+		await handleThinkingCommand(ctx, target);
 	});
 
 	bot.command("tree", async (ctx) => {
@@ -1208,6 +1256,47 @@ export function createBot(
 		}
 	});
 
+	bot.callbackQuery(
+		/^thinking_(off|minimal|low|medium|high|xhigh|max)$/,
+		async (ctx) => {
+			const target = getTelegramTarget(ctx);
+			const level = ctx.match?.[1] as ThinkingLevel | undefined;
+			const messageId = ctx.callbackQuery.message?.message_id;
+			if (!target || !level) return;
+
+			const piSession = getExistingSession(target);
+			if (!piSession) {
+				await ctx.answerCallbackQuery({
+					text: "Expired, run /thinking again",
+				});
+				return;
+			}
+			if (isBusy(target)) {
+				await ctx.answerCallbackQuery({
+					text: "Wait for the current prompt to finish",
+				});
+				return;
+			}
+
+			try {
+				piSession.setThinkingLevel(level);
+				await ctx.answerCallbackQuery({ text: `Thinking set to ${level}` });
+				if (messageId) {
+					await safeEditMessage(
+						bot,
+						target,
+						messageId,
+						`<b>Thinking level:</b> <code>${escapeHTML(level)}</code>`,
+						{ fallbackText: `Thinking level: ${level}` },
+					);
+				}
+			} catch (error) {
+				const failure = renderFailedText(error);
+				await ctx.answerCallbackQuery({ text: failure.fallbackText });
+			}
+		},
+	);
+
 	bot.callbackQuery("model_show_all", async (ctx) => {
 		const target = getTelegramTarget(ctx);
 		const messageId = ctx.callbackQuery.message?.message_id;
@@ -1274,8 +1363,9 @@ export function createBot(
 				models[index].id,
 				models[index].thinkingLevel,
 			);
-			const html = `<b>Model switched to:</b> <code>${escapeHTML(modelName)}</code>`;
-			const plainText = `Model switched to: ${modelName}`;
+			const thinkingLevel = piSession.getThinkingLevel();
+			const html = `<b>Model switched to:</b> <code>${escapeHTML(modelName)}</code>\n<b>Thinking level:</b> <code>${escapeHTML(thinkingLevel)}</code>`;
+			const plainText = `Model switched to: ${modelName}\nThinking level: ${thinkingLevel}`;
 
 			if (messageId) {
 				await safeEditMessage(bot, target, messageId, html, {

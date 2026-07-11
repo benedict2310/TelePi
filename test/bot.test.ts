@@ -311,6 +311,9 @@ function createMockPiSession(overrides: Partial<PiSessionService> = {}) {
 			},
 		]),
 		setModel: vi.fn().mockResolvedValue("openai/gpt-4o"),
+		getThinkingLevels: vi.fn().mockReturnValue(["off", "low", "medium", "high"]),
+		getThinkingLevel: vi.fn().mockReturnValue("medium"),
+		setThinkingLevel: vi.fn(),
 		getTree: vi.fn().mockReturnValue(defaultTree),
 		getLeafId: vi.fn().mockReturnValue("leaf1234"),
 		getEntry: vi.fn().mockImplementation((id: string) => {
@@ -4918,6 +4921,7 @@ describe("createBot", () => {
 					description: "Show context usage and session stats",
 				},
 				{ command: "model", description: "Switch AI model" },
+				{ command: "thinking", description: "Set thinking level" },
 				{ command: "tree", description: "View and navigate the session tree" },
 				{
 					command: "branch",

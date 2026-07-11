@@ -1,7 +1,12 @@
 import { existsSync } from "node:fs";
 import path from "node:path";
 import type { ThinkingLevel } from "@earendil-works/pi-agent-core";
-import type { Api, ImageContent, Model } from "@earendil-works/pi-ai";
+import {
+	getSupportedThinkingLevels,
+	type Api,
+	type ImageContent,
+	type Model,
+} from "@earendil-works/pi-ai";
 import {
 	type AgentSession,
 	type AgentSessionRuntime,
@@ -70,6 +75,7 @@ export interface PiSessionInfo {
 	sessionName?: string;
 	modelFallbackMessage?: string;
 	model?: string;
+	thinkingLevel?: ThinkingLevel;
 	diagnostics?: PiSessionDiagnostic[];
 }
 
@@ -726,6 +732,7 @@ export class PiSessionService {
 			sessionName: session.sessionName,
 			modelFallbackMessage: this.handle.runtime.modelFallbackMessage,
 			model: model ? `${model.provider}/${model.id}` : undefined,
+			thinkingLevel: session.thinkingLevel,
 			...(diagnostics ? { diagnostics } : {}),
 		};
 	}
@@ -897,6 +904,26 @@ export class PiSessionService {
 				: false,
 			thinkingLevel: scopedThinkingLevels.get(`${model.provider}/${model.id}`),
 		}));
+	}
+
+	getThinkingLevels(): ThinkingLevel[] {
+		const model = this.getSession().model;
+		return model
+			? (getSupportedThinkingLevels(model) as ThinkingLevel[])
+			: [];
+	}
+
+	getThinkingLevel(): ThinkingLevel {
+		return this.getSession().thinkingLevel;
+	}
+
+	setThinkingLevel(level: ThinkingLevel): void {
+		if (!this.getThinkingLevels().includes(level)) {
+			throw new Error(
+				`Thinking level is not supported by the current model: ${level}`,
+			);
+		}
+		this.getSession().setThinkingLevel(level);
 	}
 
 	async setModel(

@@ -82,6 +82,7 @@ export function renderSessionInfoPlain(info: PiSessionInfo): string {
     `Workspace: ${info.workspace}`,
     info.sessionName ? `Session name: ${info.sessionName}` : undefined,
     info.model ? `Model: ${info.model}` : undefined,
+    info.thinkingLevel ? `Thinking level: ${info.thinkingLevel}` : undefined,
     info.modelFallbackMessage ? `Model note: ${info.modelFallbackMessage}` : undefined,
     diagnostics ? "" : undefined,
     diagnostics,
@@ -99,6 +100,9 @@ export function renderSessionInfoHTML(info: PiSessionInfo): string {
     `<b>Workspace:</b> <code>${escapeHTML(info.workspace)}</code>`,
     info.sessionName ? `<b>Session name:</b> <code>${escapeHTML(info.sessionName)}</code>` : undefined,
     info.model ? `<b>Model:</b> <code>${escapeHTML(info.model)}</code>` : undefined,
+    info.thinkingLevel
+      ? `<b>Thinking level:</b> <code>${escapeHTML(info.thinkingLevel)}</code>`
+      : undefined,
     info.modelFallbackMessage
       ? `<b>Model note:</b> ${escapeHTML(info.modelFallbackMessage)}`
       : undefined,

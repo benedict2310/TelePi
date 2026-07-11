@@ -621,6 +621,7 @@ describe("PiSessionService", () => {
 			sessionName: undefined,
 			modelFallbackMessage: "fallback-model",
 			model: "anthropic/claude-sonnet-4-5",
+			thinkingLevel: "medium",
 		});
 	});
 
