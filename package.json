@@ -51,9 +51,9 @@
     "test:coverage": "vitest run --coverage"
   },
   "dependencies": {
-    "@earendil-works/pi-agent-core": "^0.80.2",
-    "@earendil-works/pi-ai": "^0.80.2",
-    "@earendil-works/pi-coding-agent": "^0.80.2",
+    "@earendil-works/pi-agent-core": "^0.80.10",
+    "@earendil-works/pi-ai": "^0.80.10",
+    "@earendil-works/pi-coding-agent": "^0.80.10",
     "@grammyjs/auto-retry": "^2.0.2",
     "grammy": "^1.44.0",
     "minimatch": "^10.2.4"
