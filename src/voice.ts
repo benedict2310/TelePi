@@ -1,18 +1,29 @@
 import { spawn } from "node:child_process";
-import { existsSync } from "node:fs";
-import { readFile } from "node:fs/promises";
+import { existsSync, mkdtempSync } from "node:fs";
+import { readFile, rm } from "node:fs/promises";
 import { createRequire } from "node:module";
+import { tmpdir } from "node:os";
 import path from "node:path";
 
 import { getPlatformInstallHint } from "./install/platform.js";
 
 export interface TranscriptionResult {
   text: string;
-  backend: "parakeet" | "sherpa-onnx" | "openai";
+  backend: "parakeet" | "sherpa-onnx" | "whisper-cpp" | "openai";
   durationMs: number;
 }
 
-export type TranscriptionBackend = "parakeet" | "sherpa-onnx" | "openai";
+export type TranscriptionBackend = "parakeet" | "sherpa-onnx" | "whisper-cpp" | "openai";
+
+export interface TtsResult {
+  filePath: string;
+  format: string;
+  durationMs: number;
+}
+
+function getWhisperCppUrl(): string {
+  return process.env.WHISPER_CPP_URL?.trim() || "";
+}
 
 // Minimal interface for the parakeet-coreml engine instance.
 interface ParakeetEngine {
@@ -74,7 +85,10 @@ Option 2: Install Sherpa-ONNX for local/offline Parakeet transcription on Intel-
     ${SHERPA_MODEL_DOCS_URL}
   Set ${SHERPA_ONNX_MODEL_DIR_ENV}=/path/to/sherpa-onnx-nemo-parakeet-tdt-0.6b-v3-int8
 
-Option 3: Set OPENAI_API_KEY for cloud transcription (~$0.006/min):
+Option 3: Set WHISPER_CPP_URL for local transcription via whisper.cpp server (free, private):
+  WHISPER_CPP_URL=http://your-whisper-server:8080/inference
+
+Option 4: Set OPENAI_API_KEY for cloud transcription (~$0.006/min):
   Add OPENAI_API_KEY=sk-... to your .env file`;
 
 const _require = createRequire(import.meta.url);
@@ -142,6 +156,10 @@ export async function transcribeAudio(filePath: string): Promise<TranscriptionRe
     }
   }
 
+  if (hasWhisperCppUrl()) {
+    return await transcribeWithWhisperCpp(filePath);
+  }
+
   if (hasOpenAIApiKey()) {
     return await transcribeWithOpenAI(filePath);
   }
@@ -174,6 +192,10 @@ export async function getVoiceBackendStatus(): Promise<VoiceBackendStatus> {
     }
   } else if (sherpaConfig.status === "misconfigured") {
     warning = sherpaConfig.message;
+  }
+
+  if (hasWhisperCppUrl()) {
+    backends.push("whisper-cpp");
   }
 
   if (hasOpenAIApiKey()) {
@@ -307,6 +329,89 @@ async function transcribeWithSherpaOnnx(
     } finally {
       stream.free?.();
     }
+  });
+}
+
+function hasWhisperCppUrl(): boolean {
+  return getWhisperCppUrl().length > 0;
+}
+
+async function transcribeWithWhisperCpp(filePath: string): Promise<TranscriptionResult> {
+  const whisperCppUrl = getWhisperCppUrl();
+  const startedAt = Date.now();
+
+  // whisper.cpp server only accepts 16kHz mono WAV. Telegram sends OGG/Opus.
+  // Convert to WAV via ffmpeg first.
+  const wavPath = filePath + ".whisper.wav";
+  try {
+    await convertToWav(filePath, wavPath);
+    const audioBuffer = await readFile(wavPath);
+
+    const form = new FormData();
+    form.append("file", new Blob([audioBuffer], { type: "audio/wav" }), "audio.wav");
+    form.append("response_format", "json");
+
+    const response = await fetch(whisperCppUrl, {
+      method: "POST",
+      body: form,
+    });
+
+    if (!response.ok) {
+      const errorText = (await response.text().catch(() => "")).trim();
+      throw new Error(
+        `whisper.cpp transcription failed (${response.status}): ${errorText || response.statusText || "Unknown error"}`,
+      );
+    }
+
+    const payload = (await response.json()) as { text?: unknown };
+    const text = typeof payload.text === "string" ? payload.text.trim() : "";
+
+    return {
+      text,
+      backend: "whisper-cpp",
+      durationMs: Date.now() - startedAt,
+    };
+  } finally {
+    // Clean up temp WAV file
+    rm(wavPath, { force: true }).catch(() => {});
+  }
+}
+
+function convertToWav(inputPath: string, outputPath: string): Promise<void> {
+  return new Promise<void>((resolve, reject) => {
+    const args = [
+      "-y",
+      "-i", inputPath,
+      "-ar", "16000",
+      "-ac", "1",
+      "-sample_fmt", "s16",
+      outputPath,
+    ];
+
+    const proc = spawn("ffmpeg", args, {
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+
+    let stderr = "";
+    proc.stderr.on("data", (chunk: Buffer) => {
+      stderr += chunk.toString("utf8");
+    });
+
+    proc.once("error", (error) => {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+        reject(new Error(FFMPEG_INSTALL_MESSAGE));
+        return;
+      }
+      reject(error);
+    });
+
+    proc.once("close", (code) => {
+      if (code !== 0) {
+        reject(new Error(`ffmpeg wav conversion failed (exit ${code}): ${stderr.trim() || "unknown error"}`));
+        return;
+      }
+      resolve();
+    });
   });
 }
 
@@ -506,6 +611,285 @@ function decodeAudioToSamples(filePath: string): Promise<Float32Array> {
 
 function hasOpenAIApiKey(): boolean {
   return Boolean(process.env.OPENAI_API_KEY?.trim());
+}
+
+// ---------------------------------------------------------------------------
+// TTS (Text-to-Speech) via edge-tts + ffmpeg → OGG/Opus for Telegram voice
+// ---------------------------------------------------------------------------
+
+const TTS_VOICE = process.env.TELEPI_TTS_VOICE?.trim() || "en-US-JennyNeural";
+
+// DeepSeek API for spoken-rewrite step
+function getDeepseekApiKey(): string {
+  return process.env.DEEPSEEK_API_KEY?.trim() || "";
+}
+function getDeepseekBaseUrl(): string {
+  return process.env.DEEPSEEK_BASE_URL?.trim() || "https://api.deepseek.com";
+}
+
+// Gemini API for image description (free tier, vision-only)
+function getGeminiApiKey(): string {
+  return process.env.GEMINI_API_KEY?.trim() || "";
+}
+
+/**
+ * Describe an image using Gemini (free vision model).
+ * Returns a text description that can be fed to a non-vision LLM.
+ */
+export async function describeImageWithGemini(
+  imageBase64: string,
+  mimeType: string,
+  prompt?: string,
+): Promise<string> {
+  const apiKey = getGeminiApiKey();
+  if (!apiKey) {
+    throw new Error("GEMINI_API_KEY not configured — cannot describe images");
+  }
+
+  const userPrompt = prompt || "Describe this image in detail. What do you see?";
+
+  const response = await fetch(
+    `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        contents: [
+          {
+            parts: [
+              { text: userPrompt },
+              {
+                inline_data: {
+                  mime_type: mimeType,
+                  data: imageBase64,
+                },
+              },
+            ],
+          },
+        ],
+      }),
+    },
+  );
+
+  if (!response.ok) {
+    const errorText = (await response.text().catch(() => "")).trim();
+    throw new Error(
+      `Gemini image description failed (${response.status}): ${errorText || response.statusText || "Unknown error"}`,
+    );
+  }
+
+  const data = (await response.json()) as {
+    candidates?: Array<{
+      content?: { parts?: Array<{ text?: string }> };
+    }>;
+  };
+
+  const text = data.candidates?.[0]?.content?.parts
+    ?.map((part) => part.text ?? "")
+    .join("\n")
+    .trim();
+
+  if (!text) {
+    throw new Error("Gemini returned an empty description");
+  }
+
+  return text;
+}
+
+/**
+ * Convert a text response into natural spoken conversation using LLM.
+ * Returns a concise, conversational version suitable for TTS.
+ */
+export async function conversationalizeText(text: string): Promise<string> {
+  const apiKey = getDeepseekApiKey();
+  if (!apiKey) {
+    // No API key configured — fall back to basic cleanup
+    return cleanupForSpeech(text);
+  }
+
+  try {
+    const response = await fetch(`${getDeepseekBaseUrl()}/v1/chat/completions`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify({
+        model: "deepseek-chat",
+        messages: [
+          {
+            role: "system",
+            content: `You are a friendly voice assistant. Rewrite written responses into natural spoken English as if you're talking to someone. Rules:
+- Sound warm and conversational — like you're explaining something to a friend
+- Strip ALL markdown, code blocks, bullet points, and formatting
+- Use contractions ("it's", "I've", "you'll"), casual transitions ("so", "basically", "oh and")
+- Adapt length to the content: short answers stay short, complex topics get a clear explanation
+- For long/detailed responses, distill to the key 2-4 takeaways — don't read a wall of text
+- For short answers, keep them concise but friendly
+- If there are action items or results, highlight those naturally
+- Never use meta-language like "the text says" or "according to the response"
+- Start naturally — no "Okay so..." every time, vary your openings
+- Output ONLY the spoken text, no quotes, no prefixes.`,
+          },
+          {
+            role: "user",
+            content: `Convert this into natural spoken conversation:\n\n${text}`,
+          },
+        ],
+        max_tokens: 600,
+        temperature: 0.7,
+      }),
+    });
+
+    if (!response.ok) {
+      console.error("Spoken rewrite API error:", response.status);
+      return cleanupForSpeech(text);
+    }
+
+    const data = (await response.json()) as {
+      choices?: Array<{ message?: { content?: string } }>;
+    };
+    const spoken = data.choices?.[0]?.message?.content?.trim();
+    if (!spoken) {
+      return cleanupForSpeech(text);
+    }
+
+    return spoken;
+  } catch (error) {
+    console.error("Spoken rewrite failed:", error);
+    return cleanupForSpeech(text);
+  }
+}
+
+/**
+ * Basic cleanup fallback: strip markdown, truncate for speech.
+ */
+function cleanupForSpeech(text: string): string {
+  let cleaned = text
+    .replace(/\*\*(.+?)\*\*/g, "$1")       // bold
+    .replace(/\*(.+?)\*/g, "$1")             // italic
+    .replace(/`{1,3}[^`]*`{1,3}/g, "")       // inline/block code
+    .replace(/^#{1,6}\s+/gm, "")             // headings
+    .replace(/\[([^\]]+)\]\([^)]+\)/g, "$1") // links
+    .replace(/^[-*+]\s+/gm, "")              // list markers
+    .replace(/^\d+\.\s+/gm, "")              // numbered lists
+    .replace(/\n{3,}/g, "\n\n")              // collapse whitespace
+    .trim();
+
+  // Truncate to reasonable voice length (~2-3 sentences)
+  const sentences = cleaned.match(/[^.!?]+[.!?]+/g);
+  if (sentences && sentences.length > 3) {
+    cleaned = sentences.slice(0, 3).join(" ");
+  } else if (cleaned.length > 500) {
+    cleaned = cleaned.substring(0, 500).replace(/\s+\S*$/, "");
+  }
+
+  return cleaned || "Done.";
+}
+
+/**
+ * Synthesize text to speech, returning an OGG/Opus buffer suitable for
+ * Telegram's sendVoice API.
+ */
+export async function synthesizeSpeech(text: string): Promise<Buffer> {
+  // Step 0: Convert to natural spoken conversation first
+  const spokenText = await conversationalizeText(text);
+
+  const tmpDir = mkdtempSync(path.join(tmpdir(), "telepi-tts-"));
+  const mp3Path = path.join(tmpDir, "speech.mp3");
+  const oggPath = path.join(tmpDir, "speech.ogg");
+
+  try {
+    // Step 1: edge-tts → MP3
+    await synthesizeWithEdgeTts(spokenText, mp3Path);
+
+    // Step 2: ffmpeg MP3 → OGG/Opus (required for Telegram voice messages)
+    await convertToOggOpus(mp3Path, oggPath);
+
+    const oggBuffer = await readFile(oggPath);
+    return oggBuffer;
+  } finally {
+    // Cleanup temp dir
+    rm(tmpDir, { recursive: true, force: true }).catch(() => {});
+  }
+}
+
+function synthesizeWithEdgeTts(text: string, outputPath: string): Promise<void> {
+  return new Promise<void>((resolve, reject) => {
+    const args = [
+      "-m", "edge_tts",
+      "--voice", TTS_VOICE,
+      "--text", text,
+      "--write-media", outputPath,
+    ];
+
+    const proc = spawn("python3", args, {
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+
+    let stderr = "";
+    proc.stderr.on("data", (chunk: Buffer) => {
+      stderr += chunk.toString("utf8");
+    });
+
+    proc.once("error", (error) => {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+        reject(new Error("python3 not found. Install Python 3 and edge-tts: pip install edge-tts"));
+        return;
+      }
+      reject(error);
+    });
+
+    proc.once("close", (code) => {
+      if (code !== 0) {
+        reject(new Error(`edge-tts failed (exit ${code}): ${stderr.trim() || "unknown error"}`));
+        return;
+      }
+      if (!existsSync(outputPath)) {
+        reject(new Error("edge-tts did not produce output file"));
+        return;
+      }
+      resolve();
+    });
+  });
+}
+
+function convertToOggOpus(inputPath: string, outputPath: string): Promise<void> {
+  return new Promise<void>((resolve, reject) => {
+    const args = [
+      "-y",
+      "-i", inputPath,
+      "-filter:a", "atempo=1.2",
+      "-c:a", "libopus",
+      "-b:a", "32k",
+      "-ar", "24000",
+      "-ac", "1",
+      "-application", "audio",
+      "-f", "ogg",
+      outputPath,
+    ];
+
+    const proc = spawn("ffmpeg", args, {
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+
+    let stderr = "";
+    proc.stderr.on("data", (chunk: Buffer) => {
+      stderr += chunk.toString("utf8");
+    });
+
+    proc.once("error", (error) => {
+      reject(error);
+    });
+
+    proc.once("close", (code) => {
+      if (code !== 0) {
+        reject(new Error(`ffmpeg ogg conversion failed (exit ${code}): ${stderr.trim() || "unknown error"}`));
+        return;
+      }
+      resolve();
+    });
+  });
 }
 
 function extractTranscribedText(result: unknown): string | undefined {

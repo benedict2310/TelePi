@@ -1,4 +1,6 @@
 import { readFile, unlink } from "node:fs/promises";
+import { mkdirSync, copyFileSync } from "node:fs";
+import path from "node:path";
 import type { ImageContent } from "@earendil-works/pi-ai";
 import type { SlashCommandInfo } from "@earendil-works/pi-coding-agent";
 import { autoRetry } from "@grammyjs/auto-retry";
@@ -70,7 +72,7 @@ import {
 	type PiSessionService,
 } from "./pi-session.js";
 import { type TreeFilterMode, truncateText } from "./tree.js";
-import { getVoiceBackendStatus, transcribeAudio } from "./voice.js";
+import { describeImageWithGemini, getVoiceBackendStatus, synthesizeSpeech, transcribeAudio } from "./voice.js";
 
 const EDIT_DEBOUNCE_MS = 1500;
 const TYPING_INTERVAL_MS = 4500;
@@ -127,6 +129,29 @@ function resolveImageMimeType(
 	const extension =
 		extensionIndex >= 0 ? filePath.slice(extensionIndex).toLowerCase() : "";
 	return IMAGE_MIME_BY_EXTENSION[extension] ?? "image/jpeg";
+}
+
+/**
+ * If the user replied to a previous message, prepend its content as context.
+ */
+function buildReplyContext(ctx: Context, userText: string): string {
+	const repliedTo = ctx.message?.reply_to_message;
+	if (!repliedTo) return userText;
+
+	const repliedText =
+		repliedTo.text ||
+		repliedTo.caption ||
+		(repliedTo.voice ? "[voice message]" : "") ||
+		(repliedTo.photo ? "[photo]" : "") ||
+		(repliedTo.document ? `[file: ${repliedTo.document.file_name || "unnamed"}]` : "") ||
+		"[message]";
+
+	const repliedFrom = repliedTo.from?.first_name || "unknown";
+
+	// If the replied message is from the bot, mark it as assistant's previous response
+	const role = repliedTo.from?.is_bot ? "Assistant" : repliedFrom;
+
+	return `[Replying to ${role}: "${repliedText}"]\n\n${userText}`;
 }
 
 export function createBot(
@@ -523,6 +548,7 @@ export function createBot(
 		refreshChatScopedCommands,
 		extensionDialogs,
 		sendBusyReply,
+		synthesizeSpeech,
 	});
 
 	if (config.promptInboxDir) {
@@ -1309,7 +1335,10 @@ export function createBot(
 	});
 
 	bot.on("message:text", async (ctx) => {
-		const userText = ctx.message.text.trim();
+		let userText = ctx.message.text.trim();
+		// If replying to a message, include it as context
+		userText = buildReplyContext(ctx, userText);
+		console.log("Received message from", ctx.from?.id, ":", userText.substring(0, 200));
 		if (!userText) {
 			return;
 		}
@@ -1411,12 +1440,13 @@ export function createBot(
 				| undefined,
 		);
 		const documentMimeType = ctx.message.document?.mime_type;
+		const documentFileName = ctx.message.document?.file_name;
 		const isImageDocument =
 			documentMimeType?.toLowerCase().startsWith("image/") ?? false;
-		const documentFileId = isImageDocument
-			? ctx.message.document?.file_id
-			: undefined;
-		const fileId = photoFileId ?? documentFileId;
+		const isPhoto = Boolean(photoFileId);
+
+		// Determine what kind of file we got
+		const fileId = photoFileId ?? ctx.message.document?.file_id;
 		if (!fileId) {
 			return;
 		}
@@ -1425,42 +1455,115 @@ export function createBot(
 		let tempFilePath: string | undefined;
 		let promptText: string | undefined;
 		let images: ImageContent[] | undefined;
+		const isImage = isPhoto || isImageDocument;
 
 		try {
 			await sendChatAction(ctx.api, target, "typing");
-			tempFilePath = await downloadTelegramFile(
-				ctx.api,
-				config.telegramBotToken,
-				fileId,
-				{
-					fileKind: "image file",
-					tempFilePrefix: "telepi-image",
-				},
-			);
 
-			const imageBytes = await readFile(tempFilePath);
-			const imageMimeType = resolveImageMimeType(
-				tempFilePath,
-				documentMimeType,
-			);
-			promptText = ctx.message.caption?.trim() || DEFAULT_IMAGE_PROMPT;
-			const preview = truncateText(promptText.replace(/\s+/g, " "), 240);
-			images = [
-				{
-					type: "image",
-					data: imageBytes.toString("base64"),
-					mimeType: imageMimeType,
-				},
-			];
+			if (isImage) {
+				// --- IMAGE HANDLING: Gemini describes → pi processes text ---
+				tempFilePath = await downloadTelegramFile(
+					ctx.api,
+					config.telegramBotToken,
+					fileId,
+					{
+						fileKind: "image file",
+						tempFilePrefix: "telepi-image",
+					},
+				);
 
-			await safeReply(
-				ctx,
-				`🖼️ ${escapeHTML(preview)}`,
-				{ fallbackText: `🖼️ ${preview}` },
-				target,
-			);
+				const imageBytes = await readFile(tempFilePath);
+				const imageMimeType = resolveImageMimeType(
+					tempFilePath,
+					documentMimeType,
+				);
+				const userCaption = ctx.message.caption?.trim();
+
+				// Ask Gemini to describe the image
+				const geminiPrompt = userCaption
+					? `The user sent this image with the caption: "${userCaption}". Describe what you see in the image in detail, addressing the user's caption.`
+					: "Describe this image in detail. What do you see?";
+
+				const description = await describeImageWithGemini(
+					imageBytes.toString("base64"),
+					imageMimeType,
+					geminiPrompt,
+				);
+
+				// Feed Gemini's description as text to pi (DeepSeek can't see images)
+				promptText = userCaption
+					? `[The user sent an image. Here is what Gemini sees in it:\n\n${description}\n\nThe user's caption was: "${userCaption}"]\n\nPlease respond to the user based on the image description above.`
+					: `[The user sent an image. Here is what Gemini sees in it:\n\n${description}]\n\nPlease describe or respond to this image.`;
+
+				// Include reply context if the user replied to a message
+				promptText = buildReplyContext(ctx, promptText);
+
+				// Don't send images to pi — Gemini already described it
+				images = undefined;
+
+				const preview = userCaption
+					? truncateText(userCaption.replace(/\s+/g, " "), 240)
+					: "Image analysis";
+				await safeReply(
+					ctx,
+					`🖼️ ${escapeHTML(preview)}`,
+					{ fallbackText: `🖼️ ${preview}` },
+					target,
+				);
+			} else {
+				// --- FILE HANDLING: download to local path for tools ---
+				const fileName = documentFileName || `file_${Date.now()}`;
+				tempFilePath = await downloadTelegramFile(
+					ctx.api,
+					config.telegramBotToken,
+					fileId,
+					{
+						fileKind: "document",
+						tempFilePrefix: "telepi-file",
+					},
+				);
+
+				// Move to a persistent temp location with original name
+				const filesDir = "/tmp/telepi-files";
+				mkdirSync(filesDir, { recursive: true });
+				const savedPath = path.join(filesDir, fileName);
+				copyFileSync(tempFilePath, savedPath);
+
+				const caption = ctx.message.caption?.trim();
+				const userPrompt = caption || `I'm sending you a file: ${fileName}`;
+				promptText = `${userPrompt}\n\nThe file is saved locally at: ${savedPath}\nYou can use your tools to read or process it.`;
+
+				// Include reply context
+				promptText = buildReplyContext(ctx, promptText);
+
+				const fileSize = ctx.message.document?.file_size;
+				const sizeStr = fileSize
+					? fileSize > 1024 * 1024
+						? `${(fileSize / (1024 * 1024)).toFixed(1)}MB`
+						: fileSize > 1024
+							? `${(fileSize / 1024).toFixed(0)}KB`
+							: `${fileSize}B`
+					: "unknown size";
+
+				await safeReply(
+					ctx,
+					`📄 ${escapeHTML(fileName)} (${sizeStr})${
+						caption ? `\n${escapeHTML(truncateText(caption.replace(/\s+/g, " "), 200))}` : ""
+					}`,
+					{
+						fallbackText: `📄 ${fileName} (${sizeStr})${caption ? ` - ${caption}` : ""}`,
+					},
+					target,
+				);
+
+				// Don't delete this temp file path (will be cleaned up separately)
+			}
 		} catch (error) {
-			const failure = renderPrefixedError("Image handling failed", error, true);
+			const failure = renderPrefixedError(
+				isImage ? "Image handling failed" : "File handling failed",
+				error,
+				true,
+			);
 			await safeReply(
 				ctx,
 				failure.text,
@@ -1473,12 +1576,16 @@ export function createBot(
 			return;
 		} finally {
 			chatState.endTranscribing(target);
-			if (tempFilePath) {
+			// Clean up the download temp file (the persistent copy at /tmp/telepi-files/ remains)
+			if (tempFilePath && !isImage) {
+				// For non-image files, the download temp is separate from the saved copy
+				await unlink(tempFilePath).catch(() => {});
+			} else if (tempFilePath) {
 				await unlink(tempFilePath).catch(() => {});
 			}
 		}
 
-		if (!promptText || !images) {
+		if (!promptText) {
 			return;
 		}
 
@@ -1486,6 +1593,7 @@ export function createBot(
 	});
 
 	bot.on(["message:voice", "message:audio"], async (ctx) => {
+		console.log("Received voice/audio message from", ctx.from?.id, "duration:", ctx.message.voice?.duration ?? ctx.message.audio?.duration, "s");
 		const target = getTelegramTarget(ctx);
 		if (!target) {
 			return;
@@ -1561,7 +1669,9 @@ export function createBot(
 			return;
 		}
 
-		await handleUserPrompt(ctx, target, transcript);
+		// Include reply context
+		const contextualTranscript = buildReplyContext(ctx, transcript);
+		await handleUserPrompt(ctx, target, contextualTranscript, undefined, undefined, true);
 	});
 
 	bot.catch((error) => {

@@ -40,12 +40,20 @@ export async function startBot(): Promise<void> {
     shuttingDown = true;
 
     console.log(`Received ${signal}, shutting down TelePi...`);
-    bot?.stop();
 
-    setTimeout(() => {
+    // Properly await bot.stop() so the long-polling session is cleanly terminated
+    const cleanup = async () => {
+      try {
+        await bot?.stop();
+      } catch {
+        // ignore stop errors during shutdown
+      }
       disposeSessions();
       console.log("TelePi stopped.");
-    }, 500);
+      // Give logs time to flush, then exit
+      setTimeout(() => process.exit(0), 100);
+    };
+    cleanup();
   };
 
   process.once("SIGINT", () => shutdown("SIGINT"));

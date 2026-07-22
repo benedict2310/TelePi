@@ -1,6 +1,6 @@
 import type { ImageContent } from "@earendil-works/pi-ai";
 import type { SlashCommandInfo } from "@earendil-works/pi-coding-agent";
-import { type Bot, type Context, InlineKeyboard } from "grammy";
+import { type Bot, type Context, InlineKeyboard, InputFile } from "grammy";
 import type { ToolVerbosity } from "../config.js";
 import { formatError } from "../errors.js";
 import type { PiSessionContext, PiSessionService } from "../pi-session.js";
@@ -36,6 +36,7 @@ export type HandleUserPrompt = (
 	userText: string,
 	preloadedSlashCommands?: SlashCommandInfo[],
 	images?: ImageContent[],
+	voiceReply?: boolean,
 ) => Promise<boolean>;
 
 interface CreatePromptHandlerOptions {
@@ -62,12 +63,13 @@ interface CreatePromptHandlerOptions {
 		"openSelect" | "openConfirm" | "openInput"
 	>;
 	sendBusyReply: (ctx: Context) => Promise<void>;
+	synthesizeSpeech?: (text: string) => Promise<Buffer>;
 }
 
 type PromptFlowDeps = Omit<
 	CreatePromptHandlerOptions,
 	"isBusy" | "taskRunner" | "sendBusyReply"
->;
+> & { voiceReply?: boolean };
 
 type ToolState = {
 	toolName: string;
@@ -93,6 +95,8 @@ async function runPromptFlow(
 		syncChatScopedCommands,
 		refreshChatScopedCommands,
 		extensionDialogs,
+		synthesizeSpeech,
+		voiceReply,
 	} = deps;
 
 	const piSession = await ensureActiveSession(ctx, target);
@@ -320,6 +324,23 @@ async function runPromptFlow(
 		}
 
 		await deliverRenderedChunks(splitMarkdownForTelegram(finalText));
+
+		// Send voice reply if the input was a voice message
+		if (voiceReply && synthesizeSpeech) {
+			try {
+				const oggBuffer = await synthesizeSpeech(accumulatedText);
+				await bot.api.sendVoice(
+					target.chatId,
+					new InputFile(oggBuffer, "reply.ogg"),
+					{
+						message_thread_id: target.messageThreadId,
+					},
+				);
+			} catch (error) {
+				console.error("Failed to send voice reply:", error);
+				// Don't block the text response — text was already sent above
+			}
+		}
 	};
 
 	await piSession.bindExtensions({
@@ -580,6 +601,7 @@ export function createPromptHandler(
 		userText: string,
 		preloadedSlashCommands?: SlashCommandInfo[],
 		images?: ImageContent[],
+		voiceReply?: boolean,
 	): Promise<boolean> => {
 		if (isBusy(target)) {
 			await sendBusyReply(ctx);
@@ -588,7 +610,7 @@ export function createPromptHandler(
 
 		const result = taskRunner.tryStartPrompt(target, userText, () =>
 			runPromptFlow(
-				promptFlowDeps,
+				{ ...promptFlowDeps, voiceReply },
 				ctx,
 				target,
 				userText,
