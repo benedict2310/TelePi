@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
@@ -12,6 +12,17 @@ describe("Pi SDK compatibility", () => {
     expect(packageJson.dependencies["@earendil-works/pi-agent-core"]).toBe("^0.82.1");
     expect(packageJson.dependencies["@earendil-works/pi-ai"]).toBe("^0.82.1");
     expect(packageJson.dependencies["@earendil-works/pi-coding-agent"]).toBe("^0.82.1");
+  });
+
+  it("documents and releases on the supported Node version", () => {
+    const readme = readFileSync(new URL("../README.md", import.meta.url), "utf8");
+    const releaseWorkflow = readFileSync(
+      new URL("../.github/workflows/release.yml", import.meta.url),
+      "utf8",
+    );
+
+    expect(readme).toContain("- **Node.js 22.19+**");
+    expect(releaseWorkflow).toMatch(/node-version:\s*["']?22\.19["']?/);
   });
 
   it("loads external extensions that import Earendil Pi packages", async () => {
