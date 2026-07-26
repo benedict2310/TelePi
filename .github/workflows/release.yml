@@ -20,8 +20,8 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
-          # npm Trusted Publishing currently requires Node 22.14.0+.
-          node-version: 22.14
+          # TelePi's Pi SDK requires Node 22.19.0+ (also satisfies Trusted Publishing).
+          node-version: 22.19
           cache: npm
 
       - name: Show Node and npm versions

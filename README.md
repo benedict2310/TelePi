@@ -14,7 +14,7 @@ Early open-source release: **80+ stars, 13 forks, and hundreds of npm downloads*
 
 You need:
 
-- **Node.js 20+**
+- **Node.js 22.19+**
 - A Telegram bot token from [@BotFather](https://t.me/BotFather)
 - Your numeric Telegram user ID for the allowlist
 - Pi installed and authenticated locally (`~/.pi/agent/auth.json` exists after a working Pi login)
