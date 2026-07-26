@@ -247,9 +247,9 @@ const mockState = vi.hoisted(() => {
 		.mockImplementation(async (options: any) => ({
 			cwd: options.cwd,
 			agentDir: options.agentDir ?? "/mock-agent",
-			authStorage: options.authStorage ?? { kind: "auth-storage" },
+			modelRuntime:
+				options.modelRuntime ?? { kind: "model-runtime", cwd: options.cwd },
 			settingsManager: options.settingsManager,
-			modelRegistry: options.modelRegistry,
 			resourceLoader: { kind: "resource-loader", cwd: options.cwd },
 			diagnostics: [],
 		}));
@@ -396,23 +396,30 @@ const mockState = vi.hoisted(() => {
 		}),
 	};
 
-	const ModelRegistry = {
-		create: vi.fn().mockImplementation(() => {
-			const instance = {
-				getAvailable: vi.fn().mockReturnValue(models),
-				getAll: vi.fn().mockReturnValue(models),
-				find: vi
-					.fn()
-					.mockImplementation((provider: string, id: string) =>
-						models.find(
-							(model) => model.provider === provider && model.id === id,
-						),
-					),
-			};
-			modelRegistryInstances.push(instance);
-			return instance;
-		}),
+	const ModelRuntime = {
+		create: vi.fn().mockImplementation(async (options: any) => ({
+			kind: "model-runtime",
+			options,
+			getAvailable: vi.fn().mockResolvedValue(models),
+		})),
 	};
+
+	const ModelRegistry = vi.fn().mockImplementation(() => {
+		const instance = {
+			refresh: vi.fn().mockResolvedValue(undefined),
+			getAvailable: vi.fn().mockReturnValue(models),
+			getAll: vi.fn().mockReturnValue(models),
+			find: vi
+				.fn()
+				.mockImplementation((provider: string, id: string) =>
+					models.find(
+						(model) => model.provider === provider && model.id === id,
+					),
+				),
+		};
+		modelRegistryInstances.push(instance);
+		return instance;
+	});
 
 	const SessionManager = {
 		create: vi
@@ -459,6 +466,7 @@ const mockState = vi.hoisted(() => {
 		createCodingTools,
 		AuthStorage,
 		ModelRegistry,
+		ModelRuntime,
 		SessionManager,
 		SettingsManager,
 		getSubscriber: (session: object) => sessionSubscribers.get(session),
@@ -487,7 +495,8 @@ const mockState = vi.hoisted(() => {
 			createAgentSessionServices.mockClear();
 			createCodingTools.mockClear();
 			AuthStorage.create.mockClear();
-			ModelRegistry.create.mockClear();
+			ModelRegistry.mockClear();
+			ModelRuntime.create.mockClear();
 			SessionManager.create.mockClear();
 			SessionManager.open.mockClear();
 			SessionManager.listAll.mockReset();
@@ -528,6 +537,7 @@ vi.mock("@earendil-works/pi-coding-agent", () => ({
 	createCodingTools: mockState.createCodingTools,
 	AuthStorage: mockState.AuthStorage,
 	ModelRegistry: mockState.ModelRegistry,
+	ModelRuntime: mockState.ModelRuntime,
 	SessionManager: mockState.SessionManager,
 	SettingsManager: mockState.SettingsManager,
 	getAgentDir: vi.fn().mockReturnValue("/mock-agent"),
@@ -581,10 +591,14 @@ describe("PiSessionService", () => {
 	it("creates a session service and initializes the Pi session runtime", async () => {
 		const service = await PiSessionService.create(createConfig());
 
-		expect(mockState.AuthStorage.create).toHaveBeenCalledTimes(1);
-		expect(mockState.ModelRegistry.create).toHaveBeenCalledTimes(1);
-		expect(mockState.ModelRegistry.create).toHaveBeenCalledWith(
-			expect.objectContaining({ kind: "auth-storage" }),
+		expect(mockState.AuthStorage.create).not.toHaveBeenCalled();
+		expect(mockState.ModelRuntime.create).toHaveBeenCalledWith({
+			credentials: expect.anything(),
+			modelsPath: "/mock-agent/models.json",
+		});
+		expect(mockState.ModelRegistry).toHaveBeenCalledTimes(1);
+		expect(mockState.ModelRegistry).toHaveBeenCalledWith(
+			expect.objectContaining({ kind: "model-runtime" }),
 		);
 		expect(mockState.createAgentSessionRuntime).toHaveBeenCalledWith(
 			expect.any(Function),
@@ -599,8 +613,11 @@ describe("PiSessionService", () => {
 		expect(mockState.createAgentSessionServices).toHaveBeenCalledWith(
 			expect.objectContaining({
 				cwd: "/workspace/base",
-				authStorage: expect.objectContaining({ kind: "auth-storage" }),
+				modelRuntime: expect.objectContaining({ kind: "model-runtime" }),
 			}),
+		);
+		expect(mockState.createAgentSessionServices.mock.calls[0]?.[0]).not.toHaveProperty(
+			"authStorage",
 		);
 		expect(mockState.createCodingTools).toHaveBeenCalledWith("/workspace/base");
 		expect(mockState.createAgentSession).toHaveBeenCalledWith(
@@ -1347,17 +1364,19 @@ describe("PiSessionService", () => {
 
 	it("recreates the model registry each time the runtime factory creates a same-runtime replacement session", async () => {
 		const service = await PiSessionService.create(createConfig());
-		const firstRegistry =
-			mockState.createAgentSessionServices.mock.calls[0]?.[0]?.modelRegistry;
+		const firstRuntime = mockState.ModelRegistry.mock.calls[0]?.[0];
 
 		await service.switchSession("/sessions/saved.jsonl", "/workspace/projectA");
 
-		const secondRegistry =
-			mockState.createAgentSessionServices.mock.calls[1]?.[0]?.modelRegistry;
-		expect(mockState.ModelRegistry.create).toHaveBeenCalledTimes(2);
-		expect(firstRegistry).toBe(mockState.modelRegistryInstances[0]);
-		expect(secondRegistry).toBe(mockState.modelRegistryInstances[1]);
-		expect(secondRegistry).not.toBe(firstRegistry);
+		const secondRuntime = mockState.ModelRegistry.mock.calls[1]?.[0];
+		expect(mockState.ModelRegistry).toHaveBeenCalledTimes(2);
+		expect(firstRuntime).toEqual(
+			expect.objectContaining({ kind: "model-runtime" }),
+		);
+		expect(secondRuntime).toEqual(
+			expect.objectContaining({ kind: "model-runtime" }),
+		);
+		expect(secondRuntime).not.toBe(firstRuntime);
 	});
 
 	it("recreates the model registry and reapplies coding-tool activation for cross-runtime replacements", async () => {
@@ -1369,17 +1388,17 @@ describe("PiSessionService", () => {
 			{ name: "find", description: "Find files" },
 		]);
 		const service = await PiSessionService.create(createConfig());
-		const firstRegistry =
-			mockState.createAgentSessionServices.mock.calls[0]?.[0]?.modelRegistry;
+		const firstRuntime = mockState.ModelRegistry.mock.calls[0]?.[0];
 
 		await service.newSession("/workspace/other");
 
-		const secondRegistry =
-			mockState.createAgentSessionServices.mock.calls[1]?.[0]?.modelRegistry;
+		const secondRuntime = mockState.ModelRegistry.mock.calls[1]?.[0];
 		const replacementSession = mockState.createdSessions[1]?.session;
-		expect(mockState.ModelRegistry.create).toHaveBeenCalledTimes(2);
-		expect(secondRegistry).toBe(mockState.modelRegistryInstances[1]);
-		expect(secondRegistry).not.toBe(firstRegistry);
+		expect(mockState.ModelRegistry).toHaveBeenCalledTimes(2);
+		expect(secondRuntime).toEqual(
+			expect.objectContaining({ kind: "model-runtime" }),
+		);
+		expect(secondRuntime).not.toBe(firstRuntime);
 		expect(replacementSession.setActiveToolsByName).toHaveBeenCalledWith(
 			expect.arrayContaining([
 				"read",
@@ -2129,6 +2148,11 @@ describe("PiSessionService", () => {
 			name: "GPT-4o",
 		});
 		expect(currentSession.setThinkingLevel).not.toHaveBeenCalled();
+		expect(
+			mockState.modelRegistryInstances.every(
+				(registry) => registry.refresh.mock.calls.length === 0,
+			),
+		).toBe(true);
 	});
 
 	it("applies a scoped thinking-level override when switching models", async () => {
@@ -2359,12 +2383,16 @@ describe("PiSessionService", () => {
 		expect(onAgentEnd).toHaveBeenCalledTimes(1);
 	});
 
-	it("reloads auth storage before prompting", async () => {
+	it("does not refresh remote model catalogs before prompting", async () => {
 		const service = await PiSessionService.create(createConfig());
 
 		await service.prompt("hello");
 
-		expect(mockState.authStorageInstances[0]?.reload).toHaveBeenCalledTimes(1);
+		expect(
+			mockState.modelRegistryInstances.every(
+				(registry) => registry.refresh.mock.calls.length === 0,
+			),
+		).toBe(true);
 	});
 
 	it("passes image attachments through when prompting", async () => {
@@ -2379,12 +2407,22 @@ describe("PiSessionService", () => {
 		expect(currentSession.prompt).toHaveBeenCalledWith("hello", { images });
 	});
 
-	it("reloads auth storage before listing models", async () => {
+	it("refreshes model availability without refreshing remote catalogs before listing models", async () => {
 		const service = await PiSessionService.create(createConfig());
+		const modelRuntime = mockState.ModelRuntime.create.mock.results[0]?.value;
 
 		await service.listModels();
 
-		expect(mockState.authStorageInstances[0]?.reload).toHaveBeenCalledTimes(1);
+		await expect(modelRuntime).resolves.toEqual(
+			expect.objectContaining({ getAvailable: expect.any(Function) }),
+		);
+		const resolvedRuntime = await modelRuntime;
+		expect(resolvedRuntime.getAvailable).toHaveBeenCalledTimes(1);
+		expect(
+			mockState.modelRegistryInstances.every(
+				(registry) => registry.refresh.mock.calls.length === 0,
+			),
+		).toBe(true);
 	});
 
 	it("wraps prompt errors with a helpful message", async () => {

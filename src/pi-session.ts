@@ -5,7 +5,6 @@ import type { Api, ImageContent, Model } from "@earendil-works/pi-ai";
 import {
 	type AgentSession,
 	type AgentSessionRuntime,
-	AuthStorage,
 	type ContextUsage,
 	type CreateAgentSessionRuntimeFactory,
 	createAgentSessionFromServices,
@@ -14,6 +13,7 @@ import {
 	createCodingTools,
 	getAgentDir,
 	ModelRegistry,
+	ModelRuntime,
 	type ResourceDiagnostic,
 	type ResourceLoader,
 	type SessionEntry,
@@ -24,6 +24,7 @@ import {
 } from "@earendil-works/pi-coding-agent";
 
 import type { TelePiConfig } from "./config.js";
+import { createReloadingCredentialStore } from "./reloading-credential-store.js";
 import {
 	resolveInitialScopedModelSelection,
 	resolveScopedModels,
@@ -527,7 +528,6 @@ async function createPiSessionHandle(
 	sessionManager: SessionManager,
 	initialSessionStartEvent?: { reason: "new" | "resume" | "fork" },
 ): Promise<PiSessionHandle> {
-	const authStorage = AuthStorage.create();
 	let getSlashCommands = (): SlashCommandInfo[] => [];
 	const createRuntime: CreateAgentSessionRuntimeFactory = async ({
 		cwd,
@@ -536,24 +536,29 @@ async function createPiSessionHandle(
 		sessionStartEvent,
 	}) => {
 		const settingsManager = SettingsManager.create(cwd);
-		const modelRegistry = ModelRegistry.create(authStorage);
+		const modelRuntime = await ModelRuntime.create({
+			credentials: await createReloadingCredentialStore(
+				path.join(agentDir, "auth.json"),
+			),
+			modelsPath: path.join(agentDir, "models.json"),
+		});
 		const services = await createAgentSessionServices({
 			cwd,
 			agentDir,
-			authStorage,
-			modelRegistry,
 			settingsManager,
+			modelRuntime,
 			resourceLoaderOptions: {
 				extensionFactories: [createProviderResponseNoticeExtension()],
 			},
 		});
+		const modelRegistry = new ModelRegistry(services.modelRuntime);
 		const configuredModel = resolveModelOverride(
-			services.modelRegistry,
+			modelRegistry,
 			config.piModel,
 		);
 		const scopedModels = await resolveScopedModels(
 			services.settingsManager,
-			services.modelRegistry,
+			modelRegistry,
 		);
 		const hasExistingSession =
 			sessionStartEvent?.reason !== "new" &&
@@ -562,7 +567,7 @@ async function createPiSessionHandle(
 			configuredModel,
 			scopedModels,
 			settingsManager: services.settingsManager,
-			modelRegistry: services.modelRegistry,
+			modelRegistry,
 			hasExistingSession,
 		});
 
@@ -744,7 +749,6 @@ export class PiSessionService {
 	}
 
 	async prompt(text: string, images?: ImageContent[]): Promise<void> {
-		this.reloadAuthStorage();
 		await promptSession(this.getSession(), text, images);
 	}
 
@@ -865,7 +869,7 @@ export class PiSessionService {
 	}
 
 	async listModels(showAll = false): Promise<PiSessionModelOption[]> {
-		this.reloadAuthStorage();
+		await this.getHandle().runtime.services.modelRuntime.getAvailable();
 		const session = this.getSession();
 		const currentModel = session.model;
 		const availableModels = this.getModelRegistry().getAvailable();
@@ -904,7 +908,6 @@ export class PiSessionService {
 		modelId: string,
 		thinkingLevel?: ThinkingLevel,
 	): Promise<string> {
-		this.reloadAuthStorage();
 		const session = this.getSession();
 		const modelRegistry = this.getModelRegistry();
 		const model = modelRegistry.find(provider, modelId);
@@ -1283,12 +1286,8 @@ export class PiSessionService {
 		return this.handle;
 	}
 
-	private reloadAuthStorage(): void {
-		this.getHandle().runtime.services.authStorage.reload();
-	}
-
 	private getModelRegistry(): ModelRegistry {
-		return this.getHandle().runtime.services.modelRegistry;
+		return new ModelRegistry(this.getHandle().runtime.services.modelRuntime);
 	}
 
 	private async replaceHandle(nextHandle: PiSessionHandle): Promise<void> {
