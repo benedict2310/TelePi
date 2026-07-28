@@ -13,8 +13,18 @@ import {
   transcribeAudio,
 } from "../src/voice.js";
 
+const TRANSCRIPTION_ENV_KEYS = [
+  "TELEPI_TRANSCRIPTION_API_KEY",
+  "TELEPI_TRANSCRIPTION_URL",
+  "TELEPI_TRANSCRIPTION_MODEL",
+  "TELEPI_TRANSCRIPTION_AUTH_HEADER",
+] as const;
+
 describe("voice transcription", () => {
   const originalOpenAIKey = process.env.OPENAI_API_KEY;
+  const originalTranscriptionEnv = Object.fromEntries(
+    TRANSCRIPTION_ENV_KEYS.map((key) => [key, process.env[key]]),
+  );
   const originalSherpaModelDir = process.env.SHERPA_ONNX_MODEL_DIR;
   const originalSherpaNumThreads = process.env.SHERPA_ONNX_NUM_THREADS;
 
@@ -55,6 +65,9 @@ describe("voice transcription", () => {
     delete process.env.OPENAI_API_KEY;
     delete process.env.SHERPA_ONNX_MODEL_DIR;
     delete process.env.SHERPA_ONNX_NUM_THREADS;
+    for (const key of TRANSCRIPTION_ENV_KEYS) {
+      delete process.env[key];
+    }
     _resetImportHook();
     vi.unstubAllGlobals();
   });
@@ -68,6 +81,15 @@ describe("voice transcription", () => {
       delete process.env.OPENAI_API_KEY;
     } else {
       process.env.OPENAI_API_KEY = originalOpenAIKey;
+    }
+
+    for (const key of TRANSCRIPTION_ENV_KEYS) {
+      const original = originalTranscriptionEnv[key];
+      if (original === undefined) {
+        delete process.env[key];
+      } else {
+        process.env[key] = original;
+      }
     }
 
     if (originalSherpaModelDir === undefined) {
@@ -321,6 +343,85 @@ describe("voice transcription", () => {
         headers: { Authorization: "Bearer sk-test" },
         body: expect.any(FormData),
       }),
+    );
+  });
+
+  it("honours a custom transcription endpoint, model and auth header", async () => {
+    _setImportHook(async (specifier) => {
+      if (specifier === "parakeet-coreml") {
+        throw moduleNotFound("parakeet-coreml");
+      }
+      throw new Error(`unexpected import: ${specifier}`);
+    });
+    process.env.TELEPI_TRANSCRIPTION_API_KEY = "sp-test";
+    process.env.TELEPI_TRANSCRIPTION_URL = "https://api.sippulse.ai/openai/audio/transcriptions";
+    process.env.TELEPI_TRANSCRIPTION_MODEL = "pulse-precision-pro";
+    process.env.TELEPI_TRANSCRIPTION_AUTH_HEADER = "api-key";
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ text: "custom transcript" }),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await transcribeAudio(audioPath);
+
+    expect(result).toMatchObject({ text: "custom transcript", backend: "openai" });
+    expect(fetchMock).toHaveBeenCalledWith(
+      "https://api.sippulse.ai/openai/audio/transcriptions",
+      expect.objectContaining({
+        method: "POST",
+        headers: { "api-key": "sp-test" },
+        body: expect.any(FormData),
+      }),
+    );
+    const [, init] = fetchMock.mock.calls[0] as [string, { body: FormData }];
+    expect(init.body.get("model")).toBe("pulse-precision-pro");
+  });
+
+  it("keeps the Bearer form when only the endpoint and model are overridden", async () => {
+    _setImportHook(async (specifier) => {
+      if (specifier === "parakeet-coreml") {
+        throw moduleNotFound("parakeet-coreml");
+      }
+      throw new Error(`unexpected import: ${specifier}`);
+    });
+    process.env.TELEPI_TRANSCRIPTION_API_KEY = "sp-test";
+    process.env.TELEPI_TRANSCRIPTION_URL = "https://api.sippulse.ai/openai/audio/transcriptions";
+    process.env.TELEPI_TRANSCRIPTION_MODEL = "pulse-precision-pro";
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ text: "bearer transcript" }),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await transcribeAudio(audioPath);
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "https://api.sippulse.ai/openai/audio/transcriptions",
+      expect.objectContaining({ headers: { Authorization: "Bearer sp-test" } }),
+    );
+  });
+
+  it("prefers TELEPI_TRANSCRIPTION_API_KEY over OPENAI_API_KEY", async () => {
+    _setImportHook(async (specifier) => {
+      if (specifier === "parakeet-coreml") {
+        throw moduleNotFound("parakeet-coreml");
+      }
+      throw new Error(`unexpected import: ${specifier}`);
+    });
+    process.env.OPENAI_API_KEY = "sk-test";
+    process.env.TELEPI_TRANSCRIPTION_API_KEY = "sp-test";
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ text: "precedence transcript" }),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await transcribeAudio(audioPath);
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "https://api.openai.com/v1/audio/transcriptions",
+      expect.objectContaining({ headers: { Authorization: "Bearer sp-test" } }),
     );
   });
 

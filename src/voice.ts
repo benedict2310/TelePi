@@ -60,6 +60,21 @@ const SHERPA_ONNX_MODEL_DIR_ENV = "SHERPA_ONNX_MODEL_DIR";
 const SHERPA_ONNX_NUM_THREADS_ENV = "SHERPA_ONNX_NUM_THREADS";
 const SHERPA_MODEL_DOCS_URL =
   "https://k2-fsa.github.io/sherpa/onnx/pretrained_models/offline-transducer/nemo-transducer-models.html";
+
+// The cloud backend talks plain multipart to an OpenAI-shaped endpoint, so any
+// provider that implements /audio/transcriptions works once the URL, the model
+// name and the credential are not hard-coded. Every default below reproduces
+// the previous behaviour exactly, so an existing OPENAI_API_KEY setup keeps
+// working with no new configuration.
+const TRANSCRIPTION_URL_ENV = "TELEPI_TRANSCRIPTION_URL";
+const TRANSCRIPTION_MODEL_ENV = "TELEPI_TRANSCRIPTION_MODEL";
+const TRANSCRIPTION_API_KEY_ENV = "TELEPI_TRANSCRIPTION_API_KEY";
+// Some OpenAI-compatible providers authenticate with their own header instead
+// of `Authorization: Bearer` (SipPulse uses `api-key`). When this is set the
+// key is sent raw under that header; when it is unset the Bearer form is used.
+const TRANSCRIPTION_AUTH_HEADER_ENV = "TELEPI_TRANSCRIPTION_AUTH_HEADER";
+const DEFAULT_TRANSCRIPTION_URL = "https://api.openai.com/v1/audio/transcriptions";
+const DEFAULT_TRANSCRIPTION_MODEL = "whisper-1";
 const FFMPEG_INSTALL_MESSAGE = `ffmpeg not found. Install it with: ${getPlatformInstallHint("ffmpeg")}`;
 const NO_BACKEND_ERROR = `Voice messages require a transcription backend.
 
@@ -75,7 +90,13 @@ Option 2: Install Sherpa-ONNX for local/offline Parakeet transcription on Intel-
   Set ${SHERPA_ONNX_MODEL_DIR_ENV}=/path/to/sherpa-onnx-nemo-parakeet-tdt-0.6b-v3-int8
 
 Option 3: Set OPENAI_API_KEY for cloud transcription (~$0.006/min):
-  Add OPENAI_API_KEY=sk-... to your .env file`;
+  Add OPENAI_API_KEY=sk-... to your .env file
+
+  Any OpenAI-compatible transcription endpoint works instead:
+    ${TRANSCRIPTION_API_KEY_ENV}=...        (falls back to OPENAI_API_KEY)
+    ${TRANSCRIPTION_URL_ENV}=https://provider.example/v1/audio/transcriptions
+    ${TRANSCRIPTION_MODEL_ENV}=provider-model-name
+    ${TRANSCRIPTION_AUTH_HEADER_ENV}=api-key   (only if the provider does not use Bearer)`;
 
 const _require = createRequire(import.meta.url);
 let _importModule: (specifier: string) => Promise<unknown> = async (specifier) => _require(specifier);
@@ -311,10 +332,14 @@ async function transcribeWithSherpaOnnx(
 }
 
 async function transcribeWithOpenAI(filePath: string): Promise<TranscriptionResult> {
-  const apiKey = process.env.OPENAI_API_KEY?.trim();
+  const apiKey = resolveTranscriptionApiKey();
   if (!apiKey) {
     throw new Error(NO_BACKEND_ERROR);
   }
+
+  const endpoint = process.env[TRANSCRIPTION_URL_ENV]?.trim() || DEFAULT_TRANSCRIPTION_URL;
+  const model = process.env[TRANSCRIPTION_MODEL_ENV]?.trim() || DEFAULT_TRANSCRIPTION_MODEL;
+  const authHeader = process.env[TRANSCRIPTION_AUTH_HEADER_ENV]?.trim();
 
   const startedAt = Date.now();
   const audioBuffer = await readFile(filePath);
@@ -327,26 +352,24 @@ async function transcribeWithOpenAI(filePath: string): Promise<TranscriptionResu
   const mimeType = mimeTypes[ext] ?? "audio/ogg";
   const form = new FormData();
   form.append("file", new Blob([audioBuffer], { type: mimeType }), path.basename(filePath) || "audio.ogg");
-  form.append("model", "whisper-1");
+  form.append("model", model);
 
-  const response = await fetch("https://api.openai.com/v1/audio/transcriptions", {
+  const response = await fetch(endpoint, {
     method: "POST",
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-    },
+    headers: authHeader ? { [authHeader]: apiKey } : { Authorization: `Bearer ${apiKey}` },
     body: form,
   });
 
   if (!response.ok) {
     const errorText = (await response.text().catch(() => "")).trim();
     throw new Error(
-      `OpenAI transcription failed (${response.status}): ${errorText || response.statusText || "Unknown error"}`,
+      `OpenAI transcription failed (${response.status}): ${errorText || response.statusText || "Unknown error"} [endpoint: ${endpoint}]`,
     );
   }
 
   const payload = (await response.json()) as { text?: unknown };
   if (typeof payload.text !== "string") {
-    throw new Error("OpenAI transcription response did not include a text field");
+    throw new Error(`OpenAI transcription response did not include a text field [endpoint: ${endpoint}]`);
   }
 
   return {
@@ -504,8 +527,12 @@ function decodeAudioToSamples(filePath: string): Promise<Float32Array> {
   });
 }
 
+function resolveTranscriptionApiKey(): string | undefined {
+  return process.env[TRANSCRIPTION_API_KEY_ENV]?.trim() || process.env.OPENAI_API_KEY?.trim() || undefined;
+}
+
 function hasOpenAIApiKey(): boolean {
-  return Boolean(process.env.OPENAI_API_KEY?.trim());
+  return Boolean(resolveTranscriptionApiKey());
 }
 
 function extractTranscribedText(result: unknown): string | undefined {

@@ -235,6 +235,7 @@ TelePi supports three transcription backends and picks the best one automaticall
 | **Parakeet CoreML** (local) | `npm install parakeet-coreml` + `brew install ffmpeg` | Free | On-device |
 | **Sherpa-ONNX Parakeet** (local, Intel Mac path) | `npm install sherpa-onnx-node` + download model + set `SHERPA_ONNX_MODEL_DIR` | Free | On-device |
 | **OpenAI Whisper** (cloud) | `OPENAI_API_KEY=sk-...` in your TelePi config file | ~$0.006/min | Cloud |
+| **Any OpenAI-compatible provider** (cloud) | `TELEPI_TRANSCRIPTION_URL` + `TELEPI_TRANSCRIPTION_MODEL` + `TELEPI_TRANSCRIPTION_API_KEY` | Provider's | Cloud |
 
 TelePi tries backends in this order:
 
@@ -302,6 +303,31 @@ OPENAI_API_KEY=sk-...
 ```
 
 No additional packages are required. Supports the same audio formats Telegram delivers (Ogg Opus, MP3, M4A, WAV, etc.).
+
+#### Using another OpenAI-compatible provider
+
+The cloud backend sends a plain multipart request to an OpenAI-shaped
+`/audio/transcriptions` endpoint, so any provider implementing that shape works.
+Every variable below is optional and falls back to the OpenAI default, so an
+existing `OPENAI_API_KEY` setup needs no changes.
+
+| Variable | Default | Purpose |
+|----------|---------|---------|
+| `TELEPI_TRANSCRIPTION_API_KEY` | `OPENAI_API_KEY` | Credential for the endpoint |
+| `TELEPI_TRANSCRIPTION_URL` | `https://api.openai.com/v1/audio/transcriptions` | Full endpoint URL |
+| `TELEPI_TRANSCRIPTION_MODEL` | `whisper-1` | Value sent in the `model` field |
+| `TELEPI_TRANSCRIPTION_AUTH_HEADER` | unset | Header name for the key. Unset sends `Authorization: Bearer <key>`; set sends `<header>: <key>` raw |
+
+Example, using SipPulse AI:
+
+```
+TELEPI_TRANSCRIPTION_API_KEY=...
+TELEPI_TRANSCRIPTION_URL=https://api.sippulse.ai/openai/audio/transcriptions
+TELEPI_TRANSCRIPTION_MODEL=pulse-precision-pro
+```
+
+`TELEPI_TRANSCRIPTION_AUTH_HEADER` exists for providers that do not accept the
+Bearer form and expect their own header instead, such as `api-key`.
 
 ## Session Tree Navigation
 
