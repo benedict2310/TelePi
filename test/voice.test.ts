@@ -18,6 +18,7 @@ const TRANSCRIPTION_ENV_KEYS = [
   "TELEPI_TRANSCRIPTION_URL",
   "TELEPI_TRANSCRIPTION_MODEL",
   "TELEPI_TRANSCRIPTION_AUTH_HEADER",
+  "TELEPI_TRANSCRIPTION_PROMPT",
 ] as const;
 
 describe("voice transcription", () => {
@@ -423,6 +424,30 @@ describe("voice transcription", () => {
       "https://api.openai.com/v1/audio/transcriptions",
       expect.objectContaining({ headers: { Authorization: "Bearer sp-test" } }),
     );
+  });
+
+  it("sends the transcription prompt only when it is set", async () => {
+    _setImportHook(async (specifier) => {
+      if (specifier === "parakeet-coreml") {
+        throw moduleNotFound("parakeet-coreml");
+      }
+      throw new Error(`unexpected import: ${specifier}`);
+    });
+    process.env.OPENAI_API_KEY = "sk-test";
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ text: "t" }),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await transcribeAudio(audioPath);
+    const [, withoutPrompt] = fetchMock.mock.calls[0] as [string, { body: FormData }];
+    expect(withoutPrompt.body.get("prompt")).toBeNull();
+
+    process.env.TELEPI_TRANSCRIPTION_PROMPT = "Hipatia, worktree, herdr";
+    await transcribeAudio(audioPath);
+    const [, withPrompt] = fetchMock.mock.calls[1] as [string, { body: FormData }];
+    expect(withPrompt.body.get("prompt")).toBe("Hipatia, worktree, herdr");
   });
 
   it("throws a helpful error when no backend is available", async () => {

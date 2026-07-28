@@ -73,6 +73,10 @@ const TRANSCRIPTION_API_KEY_ENV = "TELEPI_TRANSCRIPTION_API_KEY";
 // of `Authorization: Bearer` (SipPulse uses `api-key`). When this is set the
 // key is sent raw under that header; when it is unset the Bearer form is used.
 const TRANSCRIPTION_AUTH_HEADER_ENV = "TELEPI_TRANSCRIPTION_AUTH_HEADER";
+// Optional `prompt` field of the OpenAI transcription API: free-form context
+// that biases decoding toward names and jargon the model would otherwise miss.
+// Sent only when set, so providers that reject the field are unaffected.
+const TRANSCRIPTION_PROMPT_ENV = "TELEPI_TRANSCRIPTION_PROMPT";
 const DEFAULT_TRANSCRIPTION_URL = "https://api.openai.com/v1/audio/transcriptions";
 const DEFAULT_TRANSCRIPTION_MODEL = "whisper-1";
 const FFMPEG_INSTALL_MESSAGE = `ffmpeg not found. Install it with: ${getPlatformInstallHint("ffmpeg")}`;
@@ -96,7 +100,8 @@ Option 3: Set OPENAI_API_KEY for cloud transcription (~$0.006/min):
     ${TRANSCRIPTION_API_KEY_ENV}=...        (falls back to OPENAI_API_KEY)
     ${TRANSCRIPTION_URL_ENV}=https://provider.example/v1/audio/transcriptions
     ${TRANSCRIPTION_MODEL_ENV}=provider-model-name
-    ${TRANSCRIPTION_AUTH_HEADER_ENV}=api-key   (only if the provider does not use Bearer)`;
+    ${TRANSCRIPTION_AUTH_HEADER_ENV}=api-key   (only if the provider does not use Bearer)
+    ${TRANSCRIPTION_PROMPT_ENV}=...            (context to bias names and jargon)`;
 
 const _require = createRequire(import.meta.url);
 let _importModule: (specifier: string) => Promise<unknown> = async (specifier) => _require(specifier);
@@ -353,6 +358,10 @@ async function transcribeWithOpenAI(filePath: string): Promise<TranscriptionResu
   const form = new FormData();
   form.append("file", new Blob([audioBuffer], { type: mimeType }), path.basename(filePath) || "audio.ogg");
   form.append("model", model);
+  const transcriptionPrompt = process.env[TRANSCRIPTION_PROMPT_ENV]?.trim();
+  if (transcriptionPrompt) {
+    form.append("prompt", transcriptionPrompt);
+  }
 
   const response = await fetch(endpoint, {
     method: "POST",

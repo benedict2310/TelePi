@@ -317,6 +317,19 @@ existing `OPENAI_API_KEY` setup needs no changes.
 | `TELEPI_TRANSCRIPTION_URL` | `https://api.openai.com/v1/audio/transcriptions` | Full endpoint URL |
 | `TELEPI_TRANSCRIPTION_MODEL` | `whisper-1` | Value sent in the `model` field |
 | `TELEPI_TRANSCRIPTION_AUTH_HEADER` | unset | Header name for the key. Unset sends `Authorization: Bearer <key>`; set sends `<header>: <key>` raw |
+| `TELEPI_TRANSCRIPTION_PROMPT` | unset | Sent as the API's `prompt` field. Free-form context that biases decoding toward names and jargon. Omitted entirely when unset |
+
+A prompt is worth setting if you dictate proper nouns the model does not know.
+Write it as a **context sentence**, not a bare word list - the same wording as a
+list performed noticeably worse in testing:
+
+```
+TELEPI_TRANSCRIPTION_PROMPT=Conversation about software development. Terms: Kubernetes, Grafana, worktree, ...
+```
+
+Support varies by provider and even by model within one provider, and a model
+that ignores the field does so silently. Transcribe the same clip with and
+without it before trusting it.
 
 Example, using SipPulse AI:
 
