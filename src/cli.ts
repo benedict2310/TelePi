@@ -1,7 +1,11 @@
 #!/usr/bin/env node
 import { isEntrypoint } from "./entrypoint.js";
+import { configureHttpRuntime } from "./http-runtime.js";
 import { getTelePiStatus, resolveTelePiInstallContext, setupTelePi } from "./install.js";
 import { startBot } from "./index.js";
+
+// Must run before any provider request is issued. See http-runtime.ts.
+configureHttpRuntime();
 
 const HELP_TEXT = `TelePi CLI
 

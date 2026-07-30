@@ -56,7 +56,8 @@
     "@earendil-works/pi-coding-agent": "^0.82.1",
     "@grammyjs/auto-retry": "^2.0.2",
     "grammy": "^1.35.0",
-    "minimatch": "^10.2.4"
+    "minimatch": "^10.2.4",
+    "undici": "^8.9.0"
   },
   "optionalDependencies": {
     "parakeet-coreml": "^2.2.0",

@@ -1,6 +1,7 @@
 import { createBot, registerCommands } from "./bot.js";
 import { loadConfig } from "./config.js";
 import { isEntrypoint } from "./entrypoint.js";
+import { configureHttpRuntime } from "./http-runtime.js";
 import { PiSessionRegistry } from "./pi-session.js";
 
 const MAX_RESTART_ATTEMPTS = 5;
@@ -11,6 +12,10 @@ export async function startBot(): Promise<void> {
   let bot: ReturnType<typeof createBot> | undefined;
   let shuttingDown = false;
   let restartAttempts = 0;
+
+  // Idempotent: `telepi` sets this up in cli.ts, but startBot() is also the
+  // documented library entry point. See http-runtime.ts.
+  configureHttpRuntime();
 
   try {
     const config = loadConfig();
