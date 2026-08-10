@@ -53,8 +53,10 @@ describe("bot message rendering helpers", () => {
     expect(renderSessionInfoHTML(info)).toContain("<code>/tmp/session.jsonl</code>");
 
     expect(renderHelpPlain(info)).toContain("/commands — browse TelePi and Pi commands");
+    expect(renderHelpPlain(info)).toContain("/thinking — set thinking level");
     expect(renderHelpPlain(info)).toContain("Each Telegram chat/topic has its own Pi session");
     expect(renderHelpHTML(info)).toContain("<code>/sessions &lt;path|id&gt;</code>");
+    expect(renderHelpHTML(info)).toContain("<code>/thinking</code> — set thinking level");
     expect(renderHelpHTML(info)).toContain("<b>Notes</b>");
   });
 

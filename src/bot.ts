@@ -149,6 +149,7 @@ export function createBot(
 	const pendingModelPicks = new Map<ContextKey, PiSessionModelOption[]>();
 	const pendingModelButtons = new Map<ContextKey, KeyboardItem[]>();
 	const pendingModelExtraButtons = new Map<ContextKey, KeyboardItem[]>();
+	const pendingThinkingPicks = new Map<ContextKey, ThinkingLevel[]>();
 	const pendingTreeNavs = new Map<ContextKey, string>();
 	const pendingTreeViews = new Map<ContextKey, PendingTreeView>();
 	const pendingBranchButtons = new Map<ContextKey, KeyboardItem[]>();
@@ -336,6 +337,7 @@ export function createBot(
 		pendingModelPicks.delete(contextKey);
 		pendingModelButtons.delete(contextKey);
 		pendingModelExtraButtons.delete(contextKey);
+		pendingThinkingPicks.delete(contextKey);
 		pendingTreeNavs.delete(contextKey);
 		pendingTreeViews.delete(contextKey);
 		pendingBranchButtons.delete(contextKey);
@@ -684,11 +686,13 @@ export function createBot(
 		}
 
 		const current = piSession.getThinkingLevel();
+		const chatTopicKey = getContextKey(target);
+		pendingThinkingPicks.set(chatTopicKey, levels);
 		const keyboard = new InlineKeyboard();
 		levels.forEach((level, index) => {
 			keyboard.text(
 				`${level === current ? "✅ " : ""}${level}`,
-				`thinking_${level}`,
+				`thinking_${index}`,
 			);
 			if (index % 2 === 1) keyboard.row();
 		});
@@ -1256,46 +1260,47 @@ export function createBot(
 		}
 	});
 
-	bot.callbackQuery(
-		/^thinking_(off|minimal|low|medium|high|xhigh|max)$/,
-		async (ctx) => {
-			const target = getTelegramTarget(ctx);
-			const level = ctx.match?.[1] as ThinkingLevel | undefined;
-			const messageId = ctx.callbackQuery.message?.message_id;
-			if (!target || !level) return;
+	bot.callbackQuery(/^thinking_(\d+)$/, async (ctx) => {
+		const target = getTelegramTarget(ctx);
+		const messageId = ctx.callbackQuery.message?.message_id;
+		const index = Number.parseInt(ctx.match?.[1] ?? "", 10);
+		if (!target || Number.isNaN(index)) return;
 
-			const piSession = getExistingSession(target);
-			if (!piSession) {
-				await ctx.answerCallbackQuery({
-					text: "Expired, run /thinking again",
-				});
-				return;
-			}
-			if (isBusy(target)) {
-				await ctx.answerCallbackQuery({
-					text: "Wait for the current prompt to finish",
-				});
-				return;
-			}
+		const chatTopicKey = getContextKey(target);
+		const piSession = getExistingSession(target);
+		const levels = pendingThinkingPicks.get(chatTopicKey);
+		const level = levels?.[index];
+		if (!piSession || !level) {
+			await ctx.answerCallbackQuery({
+				text: "Expired, run /thinking again",
+			});
+			return;
+		}
+		if (isBusy(target)) {
+			await ctx.answerCallbackQuery({
+				text: "Wait for the current prompt to finish",
+			});
+			return;
+		}
 
-			try {
-				piSession.setThinkingLevel(level);
-				await ctx.answerCallbackQuery({ text: `Thinking set to ${level}` });
-				if (messageId) {
-					await safeEditMessage(
-						bot,
-						target,
-						messageId,
-						`<b>Thinking level:</b> <code>${escapeHTML(level)}</code>`,
-						{ fallbackText: `Thinking level: ${level}` },
-					);
-				}
-			} catch (error) {
-				const failure = renderFailedText(error);
-				await ctx.answerCallbackQuery({ text: failure.fallbackText });
+		try {
+			piSession.setThinkingLevel(level);
+			pendingThinkingPicks.delete(chatTopicKey);
+			await ctx.answerCallbackQuery({ text: `Thinking set to ${level}` });
+			if (messageId) {
+				await safeEditMessage(
+					bot,
+					target,
+					messageId,
+					`<b>Thinking level:</b> <code>${escapeHTML(level)}</code>`,
+					{ fallbackText: `Thinking level: ${level}` },
+				);
 			}
-		},
-	);
+		} catch (error) {
+			const failure = renderFailedText(error);
+			await ctx.answerCallbackQuery({ text: failure.fallbackText });
+		}
+	});
 
 	bot.callbackQuery("model_show_all", async (ctx) => {
 		const target = getTelegramTarget(ctx);
@@ -1363,6 +1368,7 @@ export function createBot(
 				models[index].id,
 				models[index].thinkingLevel,
 			);
+			pendingThinkingPicks.delete(contextKey);
 			const thinkingLevel = piSession.getThinkingLevel();
 			const html = `<b>Model switched to:</b> <code>${escapeHTML(modelName)}</code>\n<b>Thinking level:</b> <code>${escapeHTML(thinkingLevel)}</code>`;
 			const plainText = `Model switched to: ${modelName}\nThinking level: ${thinkingLevel}`;

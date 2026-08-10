@@ -999,6 +999,112 @@ describe("createBot", () => {
 		expect(pi.service.prompt).toHaveBeenNthCalledWith(2, "retry me");
 	});
 
+	it("renders thinking-level picker buttons and marks the current level", async () => {
+		const { bot, api } = setupBot();
+
+		await bot.handleUpdate(createTestUpdate({ message: { text: "/thinking" } }));
+
+		expect(getReplyMarkupTexts(api)).toEqual([
+			"off",
+			"low",
+			"✅ medium",
+			"high",
+		]);
+		expect(getReplyMarkupData(api)).toEqual([
+			"thinking_0",
+			"thinking_1",
+			"thinking_2",
+			"thinking_3",
+		]);
+	});
+
+	it("reports when the current model has no thinking levels", async () => {
+		const { bot, api } = setupBot({
+			piSessionOverrides: { getThinkingLevels: vi.fn().mockReturnValue([]) },
+		});
+
+		await bot.handleUpdate(createTestUpdate({ message: { text: "/thinking" } }));
+
+		expect(api.sendMessage.mock.calls[0]?.[1]).toBe(
+			"No thinking levels available for the current model.",
+		);
+		expect(api.sendMessage.mock.calls[0]?.[2]?.reply_markup).toBeUndefined();
+	});
+
+	it("sets a selected thinking level and edits the picker", async () => {
+		const { bot, pi, api } = setupBot();
+		await bot.handleUpdate(createTestUpdate({ message: { text: "/thinking" } }));
+		const callbackData = getReplyMarkupData(api)[3]!;
+
+		await bot.handleUpdate(createCallbackUpdate(callbackData));
+
+		expect(pi.service.setThinkingLevel).toHaveBeenCalledWith("high");
+		expect(api.answerCallbackQuery).toHaveBeenCalledWith("cb_1", {
+			text: "Thinking set to high",
+		});
+		expect(api.editMessageText).toHaveBeenCalledWith(
+			ALLOWED_CHAT_ID,
+			1,
+			"<b>Thinking level:</b> <code>high</code>",
+			expect.objectContaining({ parse_mode: "HTML" }),
+		);
+	});
+
+	it("rejects unsupported crafted thinking-level callbacks", async () => {
+		const { bot, pi, api } = setupBot();
+		await bot.handleUpdate(createTestUpdate({ message: { text: "/thinking" } }));
+
+		await bot.handleUpdate(createCallbackUpdate("thinking_99"));
+
+		expect(pi.service.setThinkingLevel).not.toHaveBeenCalled();
+		expect(api.answerCallbackQuery).toHaveBeenCalledWith("cb_1", {
+			text: "Expired, run /thinking again",
+		});
+	});
+
+	it("rejects thinking pickers after their session expires", async () => {
+		const { bot, api, registry } = setupBot();
+		await bot.handleUpdate(createTestUpdate({ message: { text: "/thinking" } }));
+		const callbackData = getReplyMarkupData(api)[1]!;
+		await registry.registry.remove({ chatId: ALLOWED_CHAT_ID });
+
+		await bot.handleUpdate(createCallbackUpdate(callbackData));
+
+		expect(api.answerCallbackQuery).toHaveBeenCalledWith("cb_1", {
+			text: "Expired, run /thinking again",
+		});
+	});
+
+	it("rejects expired thinking pickers after the active model changes", async () => {
+		const { bot, pi, api } = setupBot();
+		await bot.handleUpdate(createTestUpdate({ message: { text: "/thinking" } }));
+		const callbackData = getReplyMarkupData(api)[1]!;
+		await bot.handleUpdate(createTestUpdate({ message: { text: "/model" } }));
+		await bot.handleUpdate(createCallbackUpdate("model_1"));
+
+		await bot.handleUpdate(createCallbackUpdate(callbackData));
+
+		expect(pi.service.setThinkingLevel).not.toHaveBeenCalled();
+		expect(api.answerCallbackQuery).toHaveBeenLastCalledWith("cb_1", {
+			text: "Expired, run /thinking again",
+		});
+	});
+
+	it("rejects thinking-level selection while a prompt is streaming", async () => {
+		const { bot, pi, api } = setupBot({
+			piSessionOverrides: { isStreaming: vi.fn().mockReturnValue(true) },
+		});
+		await bot.handleUpdate(createTestUpdate({ message: { text: "/thinking" } }));
+		const callbackData = getReplyMarkupData(api)[1]!;
+
+		await bot.handleUpdate(createCallbackUpdate(callbackData));
+
+		expect(pi.service.setThinkingLevel).not.toHaveBeenCalled();
+		expect(api.answerCallbackQuery).toHaveBeenCalledWith("cb_1", {
+			text: "Wait for the current prompt to finish",
+		});
+	});
+
 	it("keeps /retry state isolated per topic", async () => {
 		const { bot, api } = setupBot();
 
