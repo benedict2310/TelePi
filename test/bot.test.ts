@@ -1090,6 +1090,93 @@ describe("createBot", () => {
 		});
 	});
 
+	it("expires thinking pickers after callback session switches", async () => {
+		let currentInfo = createMockPiSession().service.getInfo();
+		const nextInfo = { ...currentInfo, sessionId: "switched-id" };
+		const getInfo = vi.fn(() => currentInfo);
+		const switchSession = vi.fn().mockImplementation(async () => {
+			currentInfo = nextInfo;
+			return { ...nextInfo, cancelled: false };
+		});
+		const { bot, pi, api } = setupBot({
+			piSessionOverrides: { getInfo, switchSession },
+		});
+		await bot.handleUpdate(createTestUpdate({ message: { text: "/thinking" } }));
+		const thinkingCallback = getReplyMarkupData(api)[1]!;
+		await bot.handleUpdate(createTestUpdate({ message: { text: "/sessions" } }));
+		await bot.handleUpdate(createCallbackUpdate("switch_0"));
+
+		await bot.handleUpdate(createCallbackUpdate(thinkingCallback));
+
+		expect(pi.service.setThinkingLevel).not.toHaveBeenCalled();
+		expect(api.answerCallbackQuery).toHaveBeenLastCalledWith("cb_1", {
+			text: "Expired, run /thinking again",
+		});
+	});
+
+	it("expires thinking pickers after callback new-session creation", async () => {
+		let currentInfo = createMockPiSession().service.getInfo();
+		const nextInfo = { ...currentInfo, sessionId: "new-session-id" };
+		const getInfo = vi.fn(() => currentInfo);
+		const newSession = vi.fn().mockImplementation(async () => {
+			currentInfo = nextInfo;
+			return { info: nextInfo, created: true };
+		});
+		const { bot, pi, api } = setupBot({
+			piSessionOverrides: { getInfo, newSession },
+		});
+		await bot.handleUpdate(createTestUpdate({ message: { text: "/thinking" } }));
+		const thinkingCallback = getReplyMarkupData(api)[1]!;
+		await bot.handleUpdate(createTestUpdate({ message: { text: "/new" } }));
+		await bot.handleUpdate(createCallbackUpdate("newws_1"));
+
+		await bot.handleUpdate(createCallbackUpdate(thinkingCallback));
+
+		expect(pi.service.setThinkingLevel).not.toHaveBeenCalled();
+		expect(api.answerCallbackQuery).toHaveBeenLastCalledWith("cb_1", {
+			text: "Expired, run /thinking again",
+		});
+	});
+
+	it.each(["newSession", "switchSession"] as const)(
+		"expires thinking pickers after extension-driven %s replacement",
+		async (replacement) => {
+			let currentInfo = createMockPiSession().service.getInfo();
+			const nextInfo = { ...currentInfo, sessionId: `extension-${replacement}` };
+			const getInfo = vi.fn(() => currentInfo);
+			const newSession = vi.fn().mockImplementation(async () => {
+				currentInfo = nextInfo;
+				return { info: nextInfo, created: true };
+			});
+			const switchSession = vi.fn().mockImplementation(async () => {
+				currentInfo = nextInfo;
+				return { ...nextInfo, cancelled: false };
+			});
+			const { bot, pi, api } = setupBot({
+				piSessionOverrides: { getInfo, newSession, switchSession },
+			});
+			await bot.handleUpdate(createTestUpdate({ message: { text: "/thinking" } }));
+			const thinkingCallback = getReplyMarkupData(api)[1]!;
+			vi.mocked(pi.service.prompt).mockImplementation(async () => {
+				const actions = pi.getExtensionBindings()?.commandContextActions;
+				if (replacement === "newSession") {
+					await actions?.newSession();
+				} else {
+					await actions?.switchSession("/tmp/other.jsonl");
+				}
+				pi.emitAgentEnd();
+			});
+			await bot.handleUpdate(createTestUpdate({ message: { text: "replace session" } }));
+
+			await bot.handleUpdate(createCallbackUpdate(thinkingCallback));
+
+			expect(pi.service.setThinkingLevel).not.toHaveBeenCalled();
+			expect(api.answerCallbackQuery).toHaveBeenLastCalledWith("cb_1", {
+				text: "Expired, run /thinking again",
+			});
+		},
+	);
+
 	it("rejects thinking-level selection while a prompt is streaming", async () => {
 		const { bot, pi, api } = setupBot({
 			piSessionOverrides: { isStreaming: vi.fn().mockReturnValue(true) },

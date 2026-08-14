@@ -93,6 +93,11 @@ const IMAGE_MIME_BY_EXTENSION: Record<string, string> = {
 
 type TelegramChatId = number | string;
 type ContextKey = string;
+type PendingThinkingPick = {
+	levels: ThinkingLevel[];
+	sessionId: string;
+	model?: string;
+};
 
 function selectPhotoFileId(
 	photos: Array<{ file_id: string; file_size?: number }> | undefined,
@@ -149,7 +154,7 @@ export function createBot(
 	const pendingModelPicks = new Map<ContextKey, PiSessionModelOption[]>();
 	const pendingModelButtons = new Map<ContextKey, KeyboardItem[]>();
 	const pendingModelExtraButtons = new Map<ContextKey, KeyboardItem[]>();
-	const pendingThinkingPicks = new Map<ContextKey, ThinkingLevel[]>();
+	const pendingThinkingPicks = new Map<ContextKey, PendingThinkingPick>();
 	const pendingTreeNavs = new Map<ContextKey, string>();
 	const pendingTreeViews = new Map<ContextKey, PendingTreeView>();
 	const pendingBranchButtons = new Map<ContextKey, KeyboardItem[]>();
@@ -687,7 +692,8 @@ export function createBot(
 
 		const current = piSession.getThinkingLevel();
 		const chatTopicKey = getContextKey(target);
-		pendingThinkingPicks.set(chatTopicKey, levels);
+		const { sessionId, model } = piSession.getInfo();
+		pendingThinkingPicks.set(chatTopicKey, { levels, sessionId, model });
 		const keyboard = new InlineKeyboard();
 		levels.forEach((level, index) => {
 			keyboard.text(
@@ -1268,9 +1274,16 @@ export function createBot(
 
 		const chatTopicKey = getContextKey(target);
 		const piSession = getExistingSession(target);
-		const levels = pendingThinkingPicks.get(chatTopicKey);
-		const level = levels?.[index];
-		if (!piSession || !level) {
+		const pendingPick = pendingThinkingPicks.get(chatTopicKey);
+		const level = pendingPick?.levels[index];
+		const currentInfo = piSession?.getInfo();
+		if (
+			!piSession ||
+			!pendingPick ||
+			!level ||
+			pendingPick.sessionId !== currentInfo?.sessionId ||
+			pendingPick.model !== currentInfo?.model
+		) {
 			await ctx.answerCallbackQuery({
 				text: "Expired, run /thinking again",
 			});
