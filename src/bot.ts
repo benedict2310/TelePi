@@ -1,4 +1,5 @@
 import { readFile, unlink } from "node:fs/promises";
+import type { ThinkingLevel } from "@earendil-works/pi-agent-core";
 import type { ImageContent } from "@earendil-works/pi-ai";
 import type { SlashCommandInfo } from "@earendil-works/pi-coding-agent";
 import { autoRetry } from "@grammyjs/auto-retry";
@@ -92,6 +93,11 @@ const IMAGE_MIME_BY_EXTENSION: Record<string, string> = {
 
 type TelegramChatId = number | string;
 type ContextKey = string;
+type PendingThinkingPick = {
+	levels: ThinkingLevel[];
+	sessionId: string;
+	model?: string;
+};
 
 function selectPhotoFileId(
 	photos: Array<{ file_id: string; file_size?: number }> | undefined,
@@ -148,6 +154,7 @@ export function createBot(
 	const pendingModelPicks = new Map<ContextKey, PiSessionModelOption[]>();
 	const pendingModelButtons = new Map<ContextKey, KeyboardItem[]>();
 	const pendingModelExtraButtons = new Map<ContextKey, KeyboardItem[]>();
+	const pendingThinkingPicks = new Map<ContextKey, PendingThinkingPick>();
 	const pendingTreeNavs = new Map<ContextKey, string>();
 	const pendingTreeViews = new Map<ContextKey, PendingTreeView>();
 	const pendingBranchButtons = new Map<ContextKey, KeyboardItem[]>();
@@ -335,6 +342,7 @@ export function createBot(
 		pendingModelPicks.delete(contextKey);
 		pendingModelButtons.delete(contextKey);
 		pendingModelExtraButtons.delete(contextKey);
+		pendingThinkingPicks.delete(contextKey);
 		pendingTreeNavs.delete(contextKey);
 		pendingTreeViews.delete(contextKey);
 		pendingBranchButtons.delete(contextKey);
@@ -664,6 +672,47 @@ export function createBot(
 		handleLabelCommand,
 	} = treeCommandHandlers;
 
+	const handleThinkingCommand = async (
+		ctx: Context,
+		target: PiSessionContext,
+	): Promise<void> => {
+		const piSession = await ensureActiveSession(ctx, target);
+		if (!piSession) return;
+
+		const levels = piSession.getThinkingLevels();
+		if (levels.length === 0) {
+			await safeReply(
+				ctx,
+				"No thinking levels available for the current model.",
+				{ fallbackText: "No thinking levels available for the current model." },
+				target,
+			);
+			return;
+		}
+
+		const current = piSession.getThinkingLevel();
+		const chatTopicKey = getContextKey(target);
+		const { sessionId, model } = piSession.getInfo();
+		pendingThinkingPicks.set(chatTopicKey, { levels, sessionId, model });
+		const keyboard = new InlineKeyboard();
+		levels.forEach((level, index) => {
+			keyboard.text(
+				`${level === current ? "✅ " : ""}${level}`,
+				`thinking_${index}`,
+			);
+			if (index % 2 === 1) keyboard.row();
+		});
+		await safeReply(
+			ctx,
+			`<b>Select a thinking level</b>\nCurrent: <code>${escapeHTML(current)}</code>`,
+			{
+				fallbackText: `Select a thinking level\nCurrent: ${current}`,
+				replyMarkup: keyboard,
+			},
+			target,
+		);
+	};
+
 	async function runTelePiPickerCommand(
 		ctx: Context,
 		target: PiSessionContext,
@@ -696,6 +745,9 @@ export function createBot(
 				return;
 			case "model":
 				await handleModelCommand(ctx, target);
+				return;
+			case "thinking":
+				await handleThinkingCommand(ctx, target);
 				return;
 			case "tree":
 				await handleTreeCommand(ctx, target, "/tree");
@@ -817,6 +869,12 @@ export function createBot(
 		}
 
 		await handleModelCommand(ctx, target);
+	});
+
+	bot.command("thinking", async (ctx) => {
+		const target = getTelegramTarget(ctx);
+		if (!target) return;
+		await handleThinkingCommand(ctx, target);
 	});
 
 	bot.command("tree", async (ctx) => {
@@ -1208,6 +1266,55 @@ export function createBot(
 		}
 	});
 
+	bot.callbackQuery(/^thinking_(\d+)$/, async (ctx) => {
+		const target = getTelegramTarget(ctx);
+		const messageId = ctx.callbackQuery.message?.message_id;
+		const index = Number.parseInt(ctx.match?.[1] ?? "", 10);
+		if (!target || Number.isNaN(index)) return;
+
+		const chatTopicKey = getContextKey(target);
+		const piSession = getExistingSession(target);
+		const pendingPick = pendingThinkingPicks.get(chatTopicKey);
+		const level = pendingPick?.levels[index];
+		const currentInfo = piSession?.getInfo();
+		if (
+			!piSession ||
+			!pendingPick ||
+			!level ||
+			pendingPick.sessionId !== currentInfo?.sessionId ||
+			pendingPick.model !== currentInfo?.model
+		) {
+			await ctx.answerCallbackQuery({
+				text: "Expired, run /thinking again",
+			});
+			return;
+		}
+		if (isBusy(target)) {
+			await ctx.answerCallbackQuery({
+				text: "Wait for the current prompt to finish",
+			});
+			return;
+		}
+
+		try {
+			piSession.setThinkingLevel(level);
+			pendingThinkingPicks.delete(chatTopicKey);
+			await ctx.answerCallbackQuery({ text: `Thinking set to ${level}` });
+			if (messageId) {
+				await safeEditMessage(
+					bot,
+					target,
+					messageId,
+					`<b>Thinking level:</b> <code>${escapeHTML(level)}</code>`,
+					{ fallbackText: `Thinking level: ${level}` },
+				);
+			}
+		} catch (error) {
+			const failure = renderFailedText(error);
+			await ctx.answerCallbackQuery({ text: failure.fallbackText });
+		}
+	});
+
 	bot.callbackQuery("model_show_all", async (ctx) => {
 		const target = getTelegramTarget(ctx);
 		const messageId = ctx.callbackQuery.message?.message_id;
@@ -1274,8 +1381,10 @@ export function createBot(
 				models[index].id,
 				models[index].thinkingLevel,
 			);
-			const html = `<b>Model switched to:</b> <code>${escapeHTML(modelName)}</code>`;
-			const plainText = `Model switched to: ${modelName}`;
+			pendingThinkingPicks.delete(contextKey);
+			const thinkingLevel = piSession.getThinkingLevel();
+			const html = `<b>Model switched to:</b> <code>${escapeHTML(modelName)}</code>\n<b>Thinking level:</b> <code>${escapeHTML(thinkingLevel)}</code>`;
+			const plainText = `Model switched to: ${modelName}\nThinking level: ${thinkingLevel}`;
 
 			if (messageId) {
 				await safeEditMessage(bot, target, messageId, html, {

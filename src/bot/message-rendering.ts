@@ -34,6 +34,7 @@ export function renderHelpPlain(info: PiSessionInfo): string {
     "/sessions <path|id> — switch directly to a session file or session ID",
     "/context — show context usage and session stats",
     "/model — switch AI model",
+    "/thinking — set thinking level",
     "/tree — view the session tree",
     "/branch <id> — navigate to a tree entry",
     "/label [args] — add, clear, or list labels",
@@ -61,6 +62,7 @@ export function renderHelpHTML(info: PiSessionInfo): string {
     "<code>/sessions &lt;path|id&gt;</code> — switch directly to a session file or session ID",
     "<code>/context</code> — show context usage and session stats",
     "<code>/model</code> — switch AI model",
+    "<code>/thinking</code> — set thinking level",
     "<code>/tree</code> — view the session tree",
     "<code>/branch &lt;id&gt;</code> — navigate to a tree entry",
     "<code>/label [args]</code> — add, clear, or list labels",
@@ -82,6 +84,7 @@ export function renderSessionInfoPlain(info: PiSessionInfo): string {
     `Workspace: ${info.workspace}`,
     info.sessionName ? `Session name: ${info.sessionName}` : undefined,
     info.model ? `Model: ${info.model}` : undefined,
+    info.thinkingLevel ? `Thinking level: ${info.thinkingLevel}` : undefined,
     info.modelFallbackMessage ? `Model note: ${info.modelFallbackMessage}` : undefined,
     diagnostics ? "" : undefined,
     diagnostics,
@@ -99,6 +102,9 @@ export function renderSessionInfoHTML(info: PiSessionInfo): string {
     `<b>Workspace:</b> <code>${escapeHTML(info.workspace)}</code>`,
     info.sessionName ? `<b>Session name:</b> <code>${escapeHTML(info.sessionName)}</code>` : undefined,
     info.model ? `<b>Model:</b> <code>${escapeHTML(info.model)}</code>` : undefined,
+    info.thinkingLevel
+      ? `<b>Thinking level:</b> <code>${escapeHTML(info.thinkingLevel)}</code>`
+      : undefined,
     info.modelFallbackMessage
       ? `<b>Model note:</b> ${escapeHTML(info.modelFallbackMessage)}`
       : undefined,

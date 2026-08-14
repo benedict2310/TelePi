@@ -37,6 +37,7 @@ describe("bot message rendering helpers", () => {
     sessionName: "My Session",
     modelFallbackMessage: "Using fallback model",
     model: "anthropic/claude-sonnet-4-5",
+    thinkingLevel: "medium",
   };
 
   afterEach(() => {
@@ -46,12 +47,16 @@ describe("bot message rendering helpers", () => {
   it("renders session info and help in plain text and HTML", () => {
     expect(renderSessionInfoPlain(info)).toContain("Session ID: session-1234");
     expect(renderSessionInfoPlain(info)).toContain("Model note: Using fallback model");
+    expect(renderSessionInfoPlain(info)).toContain("Thinking level: medium");
     expect(renderSessionInfoHTML(info)).toContain("<b>Session ID:</b>");
+    expect(renderSessionInfoHTML(info)).toContain("<b>Thinking level:</b> <code>medium</code>");
     expect(renderSessionInfoHTML(info)).toContain("<code>/tmp/session.jsonl</code>");
 
     expect(renderHelpPlain(info)).toContain("/commands — browse TelePi and Pi commands");
+    expect(renderHelpPlain(info)).toContain("/thinking — set thinking level");
     expect(renderHelpPlain(info)).toContain("Each Telegram chat/topic has its own Pi session");
     expect(renderHelpHTML(info)).toContain("<code>/sessions &lt;path|id&gt;</code>");
+    expect(renderHelpHTML(info)).toContain("<code>/thinking</code> — set thinking level");
     expect(renderHelpHTML(info)).toContain("<b>Notes</b>");
   });
 

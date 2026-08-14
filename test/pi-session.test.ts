@@ -638,6 +638,7 @@ describe("PiSessionService", () => {
 			sessionName: undefined,
 			modelFallbackMessage: "fallback-model",
 			model: "anthropic/claude-sonnet-4-5",
+			thinkingLevel: "medium",
 		});
 	});
 
@@ -2133,6 +2134,39 @@ describe("PiSessionService", () => {
 				scopedModels: [{ model: mockState.models[1], thinkingLevel: "high" }],
 			}),
 		);
+	});
+
+	it("returns the thinking levels supported by the current model", async () => {
+		const service = await PiSessionService.create(createConfig());
+
+		expect(service.getThinkingLevels()).toEqual(["off"]);
+	});
+
+	it("returns multiple thinking levels for a reasoning model", async () => {
+		const service = await PiSessionService.create(createConfig());
+		const currentSession = mockState.createdSessions[0]?.session;
+		currentSession.model = { ...currentSession.model, reasoning: true };
+
+		expect(service.getThinkingLevels()).toEqual([
+			"off",
+			"minimal",
+			"low",
+			"medium",
+			"high",
+		]);
+	});
+
+	it("sets supported thinking levels and rejects unsupported levels", async () => {
+		const service = await PiSessionService.create(createConfig());
+		const currentSession = mockState.createdSessions[0]?.session;
+
+		service.setThinkingLevel("off");
+
+		expect(currentSession.setThinkingLevel).toHaveBeenCalledWith("off");
+		expect(() => service.setThinkingLevel("high")).toThrow(
+			"Thinking level is not supported by the current model: high",
+		);
+		expect(currentSession.setThinkingLevel).toHaveBeenCalledTimes(1);
 	});
 
 	it("switches models via the underlying session", async () => {
