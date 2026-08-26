@@ -1,12 +1,15 @@
 import { createBot, registerCommands } from "./bot.js";
 import { loadConfig } from "./config.js";
 import { isEntrypoint } from "./entrypoint.js";
+import { configureHttpRuntime } from "./http-runtime.js";
 import { PiSessionRegistry } from "./pi-session.js";
 
 const MAX_RESTART_ATTEMPTS = 5;
 const RESTART_DELAY_MS = 3000;
 
 export async function startBot(): Promise<void> {
+  configureHttpRuntime();
+
   let sessionRegistry: PiSessionRegistry | undefined;
   let bot: ReturnType<typeof createBot> | undefined;
   let shuttingDown = false;
