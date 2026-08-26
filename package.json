@@ -51,13 +51,13 @@
     "test:coverage": "vitest run --coverage"
   },
   "dependencies": {
-    "@earendil-works/pi-agent-core": "^0.82.1",
-    "@earendil-works/pi-ai": "^0.82.1",
-    "@earendil-works/pi-coding-agent": "^0.82.1",
+    "@earendil-works/pi-agent-core": "^0.84.3",
+    "@earendil-works/pi-ai": "^0.84.3",
+    "@earendil-works/pi-coding-agent": "^0.84.3",
     "@grammyjs/auto-retry": "^2.0.2",
     "grammy": "^1.35.0",
     "minimatch": "^10.2.4",
-    "undici": "8.5.0"
+    "undici": "8.9.0"
   },
   "optionalDependencies": {
     "parakeet-coreml": "^2.2.0",

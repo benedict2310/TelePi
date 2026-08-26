@@ -9,9 +9,10 @@ import packageJson from "../package.json" with { type: "json" };
 describe("Pi SDK compatibility", () => {
   it("tracks the current Earendil Pi SDK release", () => {
     expect(packageJson.engines.node).toBe(">=22.19.0");
-    expect(packageJson.dependencies["@earendil-works/pi-agent-core"]).toBe("^0.82.1");
-    expect(packageJson.dependencies["@earendil-works/pi-ai"]).toBe("^0.82.1");
-    expect(packageJson.dependencies["@earendil-works/pi-coding-agent"]).toBe("^0.82.1");
+    expect(packageJson.dependencies["@earendil-works/pi-agent-core"]).toBe("^0.84.3");
+    expect(packageJson.dependencies["@earendil-works/pi-ai"]).toBe("^0.84.3");
+    expect(packageJson.dependencies["@earendil-works/pi-coding-agent"]).toBe("^0.84.3");
+    expect(packageJson.dependencies.undici).toBe("8.9.0");
   });
 
   it("documents and releases on the supported Node version", () => {
