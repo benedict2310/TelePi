@@ -228,19 +228,19 @@ Send any Telegram **voice message** or **audio file** and TelePi will transcribe
 [Pi responds normally]
 ```
 
-TelePi supports three transcription backends and picks the best one automatically:
+TelePi supports three transcription backends and picks the best available one automatically:
 
 | Backend | How to enable | Cost | Privacy |
 |---------|---------------|------|---------|
 | **Parakeet CoreML** (local) | `npm install parakeet-coreml` + `brew install ffmpeg` | Free | On-device |
 | **Sherpa-ONNX Parakeet** (local, Intel Mac path) | `npm install sherpa-onnx-node` + download model + set `SHERPA_ONNX_MODEL_DIR` | Free | On-device |
-| **OpenAI Whisper** (cloud) | `OPENAI_API_KEY=sk-...` in your TelePi config file | ~$0.006/min | Cloud |
+| **Cloud transcription** | `OPENAI_API_KEY=sk-...` for OpenAI Whisper, or `TELEPI_TRANSCRIPTION_URL`, `TELEPI_TRANSCRIPTION_MODEL`, and `TELEPI_TRANSCRIPTION_API_KEY` for a compatible provider | Provider-dependent | Cloud |
 
 TelePi tries backends in this order:
 
 1. **Parakeet CoreML** — best local path on Apple Silicon
 2. **Sherpa-ONNX Parakeet** — the local/offline path for Intel Macs, where `parakeet-coreml` does not run (and a CPU fallback on Apple Silicon)
-3. **OpenAI Whisper** — cloud fallback
+3. **OpenAI Whisper or a configured compatible provider** — cloud fallback
 
 The `/start` command shows which backends are currently active.
 
@@ -302,6 +302,30 @@ OPENAI_API_KEY=sk-...
 ```
 
 No additional packages are required. Supports the same audio formats Telegram delivers (Ogg Opus, MP3, M4A, WAV, etc.).
+
+### Using an OpenAI-compatible transcription provider
+
+Set a custom full transcription endpoint when your provider accepts the OpenAI-compatible multipart `audio/transcriptions` request shape. Existing `OPENAI_API_KEY` setups remain unchanged when these values are unset.
+
+| Variable | Default | Purpose |
+|----------|---------|---------|
+| `TELEPI_TRANSCRIPTION_API_KEY` | `OPENAI_API_KEY` | Credential sent to the provider |
+| `TELEPI_TRANSCRIPTION_URL` | OpenAI's `/v1/audio/transcriptions` endpoint | Full HTTP(S) endpoint |
+| `TELEPI_TRANSCRIPTION_MODEL` | `whisper-1` | Value for the multipart `model` field |
+| `TELEPI_TRANSCRIPTION_AUTH_HEADER` | unset | Custom credential-header name; unset uses `Authorization: Bearer` |
+| `TELEPI_TRANSCRIPTION_PROMPT` | unset | Optional recognition context for project-specific names and terms |
+
+For example:
+
+```bash
+TELEPI_TRANSCRIPTION_API_KEY=...
+TELEPI_TRANSCRIPTION_URL=https://provider.example/v1/audio/transcriptions
+TELEPI_TRANSCRIPTION_MODEL=provider-whisper
+TELEPI_TRANSCRIPTION_AUTH_HEADER=api-key
+TELEPI_TRANSCRIPTION_PROMPT="Conversation about TelePi and Pi coding-agent sessions."
+```
+
+TelePi removes URL credentials, queries, and fragments from endpoint details shown in errors.
 
 ## Session Tree Navigation
 

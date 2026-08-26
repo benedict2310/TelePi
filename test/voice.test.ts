@@ -15,6 +15,16 @@ import {
 
 describe("voice transcription", () => {
   const originalOpenAIKey = process.env.OPENAI_API_KEY;
+  const transcriptionEnvKeys = [
+    "TELEPI_TRANSCRIPTION_API_KEY",
+    "TELEPI_TRANSCRIPTION_URL",
+    "TELEPI_TRANSCRIPTION_MODEL",
+    "TELEPI_TRANSCRIPTION_AUTH_HEADER",
+    "TELEPI_TRANSCRIPTION_PROMPT",
+  ] as const;
+  const originalTranscriptionEnv = Object.fromEntries(
+    transcriptionEnvKeys.map((key) => [key, process.env[key]]),
+  );
   const originalSherpaModelDir = process.env.SHERPA_ONNX_MODEL_DIR;
   const originalSherpaNumThreads = process.env.SHERPA_ONNX_NUM_THREADS;
 
@@ -53,6 +63,9 @@ describe("voice transcription", () => {
     sherpaModelDir = path.join(tempDir, "sherpa-model");
     writeFileSync(audioPath, Buffer.from("audio"));
     delete process.env.OPENAI_API_KEY;
+    for (const key of transcriptionEnvKeys) {
+      delete process.env[key];
+    }
     delete process.env.SHERPA_ONNX_MODEL_DIR;
     delete process.env.SHERPA_ONNX_NUM_THREADS;
     _resetImportHook();
@@ -68,6 +81,14 @@ describe("voice transcription", () => {
       delete process.env.OPENAI_API_KEY;
     } else {
       process.env.OPENAI_API_KEY = originalOpenAIKey;
+    }
+    for (const key of transcriptionEnvKeys) {
+      const original = originalTranscriptionEnv[key];
+      if (original === undefined) {
+        delete process.env[key];
+      } else {
+        process.env[key] = original;
+      }
     }
 
     if (originalSherpaModelDir === undefined) {
@@ -322,6 +343,75 @@ describe("voice transcription", () => {
         body: expect.any(FormData),
       }),
     );
+  });
+
+  it("supports a configured OpenAI-compatible endpoint without changing OpenAI defaults", async () => {
+    _setImportHook(async (specifier) => {
+      if (specifier === "parakeet-coreml") {
+        throw moduleNotFound("parakeet-coreml");
+      }
+      throw new Error(`unexpected import: ${specifier}`);
+    });
+    process.env.TELEPI_TRANSCRIPTION_API_KEY = "provider-key";
+    process.env.TELEPI_TRANSCRIPTION_URL = "https://transcribe.example.test/v1/audio/transcriptions";
+    process.env.TELEPI_TRANSCRIPTION_MODEL = "provider-whisper";
+    process.env.TELEPI_TRANSCRIPTION_AUTH_HEADER = "api-key";
+    process.env.TELEPI_TRANSCRIPTION_PROMPT = "TelePi software-development terms.";
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ text: "custom transcript" }),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(transcribeAudio(audioPath)).resolves.toMatchObject({
+      text: "custom transcript",
+      backend: "openai",
+    });
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "https://transcribe.example.test/v1/audio/transcriptions",
+      expect.objectContaining({ headers: { "api-key": "provider-key" } }),
+    );
+    const [, init] = fetchMock.mock.calls[0] as [string, { body: FormData }];
+    expect(init.body.get("model")).toBe("provider-whisper");
+    expect(init.body.get("prompt")).toBe("TelePi software-development terms.");
+  });
+
+  it("redacts configured endpoint secrets in HTTP, payload, and transport errors", async () => {
+    _setImportHook(async (specifier) => {
+      if (specifier === "parakeet-coreml") {
+        throw moduleNotFound("parakeet-coreml");
+      }
+      throw new Error(`unexpected import: ${specifier}`);
+    });
+    process.env.TELEPI_TRANSCRIPTION_API_KEY = "provider-key";
+    process.env.TELEPI_TRANSCRIPTION_URL = "https://user:password@transcribe.example.test/v1/audio/transcriptions?token=secret#fragment";
+
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
+      ok: false,
+      status: 502,
+      statusText: "Bad Gateway",
+      text: async () => "upstream failed",
+    }));
+    await expect(transcribeAudio(audioPath)).rejects.toThrow(
+      "[endpoint: https://transcribe.example.test/v1/audio/transcriptions]",
+    );
+    await expect(transcribeAudio(audioPath)).rejects.not.toThrow(/user|password|token=secret|fragment/);
+
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: true, json: async () => ({}) }));
+    await expect(transcribeAudio(audioPath)).rejects.toThrow(
+      "OpenAI transcription response did not include a text field [endpoint: https://transcribe.example.test/v1/audio/transcriptions]",
+    );
+
+    vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new TypeError("connect ECONNREFUSED")));
+    await expect(transcribeAudio(audioPath)).rejects.toThrow(
+      "Transcription request failed [endpoint: https://transcribe.example.test/v1/audio/transcriptions]: connect ECONNREFUSED",
+    );
+
+    vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new TypeError(
+      "request to https://user:password@transcribe.example.test/v1/audio/transcriptions?token=secret#fragment failed",
+    )));
+    await expect(transcribeAudio(audioPath)).rejects.not.toThrow(/user|password|token=secret|fragment/);
   });
 
   it("throws a helpful error when no backend is available", async () => {
