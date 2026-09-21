@@ -2,7 +2,7 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "nod
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
-import { beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { resolveTelePiInstallContext } from "../../src/install.js";
 import {
@@ -12,8 +12,16 @@ import {
 } from "../../src/install/systemd.js";
 import type { TelePiInstallContext } from "../../src/install/shared.js";
 
+// The manager shells out to `systemctl --user` (daemon-reload, enable,
+// restart). Without this mock the suite drives the real service manager of
+// whoever runs the tests.
+vi.mock("node:child_process", () => ({
+  spawnSync: vi.fn(() => ({ status: 1, stdout: "", stderr: "", error: undefined })),
+}));
+
 describe("SystemdManager", () => {
   const originalPlatform = process.platform;
+  const originalEnv = process.env;
   let tempDir: string;
   let homeDir: string;
   let packageRoot: string;
@@ -58,11 +66,16 @@ describe("SystemdManager", () => {
       ].join("\n"),
     );
 
+    // resolveTelePiInstallContext() derives every path from $HOME, so without
+    // this the context points at the real user's ~/.config/systemd/user and
+    // ~/.config/telepi — which these tests then overwrite and delete.
+    process.env = { ...originalEnv, HOME: homeDir };
     Object.defineProperty(process, "platform", { value: "linux", configurable: true });
   });
 
   afterEach(() => {
     rmSync(tempDir, { recursive: true, force: true });
+    process.env = originalEnv;
     Object.defineProperty(process, "platform", { value: originalPlatform, configurable: true });
   });
 
@@ -139,10 +152,11 @@ describe("SystemdManager", () => {
     it("writes the unit file and creates the parent directory", () => {
       const ctx = createLinuxContext();
 
-      // Remove the pre-existing directory to test auto-creation
-      if (ctx.serviceUnitPath) {
-        rmSync(path.dirname(ctx.serviceUnitPath), { recursive: true, force: true });
-      }
+      // Point at a directory that does not exist yet, rather than deleting
+      // one: if HOME is ever not stubbed, a recursive delete here wipes the
+      // real ~/.config/systemd/user.
+      ctx.serviceUnitPath = path.join(tempDir, "units", "systemd", "user", "telepi.service");
+      expect(ctx.serviceUnitPath.startsWith(tempDir)).toBe(true);
 
       const written = writeSystemdUnit(ctx);
 
