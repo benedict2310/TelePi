@@ -1,8 +1,9 @@
+import { spawnSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
-import { beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { resolveTelePiInstallContext } from "../../src/install.js";
 import {
@@ -12,13 +13,22 @@ import {
 } from "../../src/install/systemd.js";
 import type { TelePiInstallContext } from "../../src/install/shared.js";
 
+// The manager shells out to `systemctl --user` (daemon-reload, enable,
+// restart). Without this mock the suite drives the real service manager of
+// whoever runs the tests.
+vi.mock("node:child_process", () => ({
+  spawnSync: vi.fn(() => ({ status: 1, stdout: "", stderr: "", error: undefined })),
+}));
+
 describe("SystemdManager", () => {
   const originalPlatform = process.platform;
+  const originalEnv = process.env;
   let tempDir: string;
   let homeDir: string;
   let packageRoot: string;
 
   beforeEach(() => {
+    vi.mocked(spawnSync).mockReset();
     tempDir = mkdtempSync(path.join(tmpdir(), "telepi-systemd-"));
     homeDir = path.join(tempDir, "home");
     packageRoot = path.join(tempDir, "package");
@@ -58,11 +68,16 @@ describe("SystemdManager", () => {
       ].join("\n"),
     );
 
+    // resolveTelePiInstallContext() derives every path from $HOME, so without
+    // this the context points at the real user's ~/.config/systemd/user and
+    // ~/.config/telepi — which these tests then overwrite and delete.
+    process.env = { ...originalEnv, HOME: homeDir };
     Object.defineProperty(process, "platform", { value: "linux", configurable: true });
   });
 
   afterEach(() => {
     rmSync(tempDir, { recursive: true, force: true });
+    process.env = originalEnv;
     Object.defineProperty(process, "platform", { value: originalPlatform, configurable: true });
   });
 
@@ -139,10 +154,11 @@ describe("SystemdManager", () => {
     it("writes the unit file and creates the parent directory", () => {
       const ctx = createLinuxContext();
 
-      // Remove the pre-existing directory to test auto-creation
-      if (ctx.serviceUnitPath) {
-        rmSync(path.dirname(ctx.serviceUnitPath), { recursive: true, force: true });
-      }
+      // Point at a directory that does not exist yet, rather than deleting
+      // one: if HOME is ever not stubbed, a recursive delete here wipes the
+      // real ~/.config/systemd/user.
+      ctx.serviceUnitPath = path.join(tempDir, "units", "systemd", "user", "telepi.service");
+      expect(ctx.serviceUnitPath.startsWith(tempDir)).toBe(true);
 
       const written = writeSystemdUnit(ctx);
 
@@ -184,15 +200,46 @@ describe("SystemdManager", () => {
   });
 
   describe("reconcile", () => {
-    it("returns a result with actions or warning from reconcile", () => {
+    it("reloads, enables, and restarts the service in order when systemctl succeeds", () => {
+      vi.mocked(spawnSync).mockReturnValue({
+        pid: 123,
+        output: [],
+        signal: null,
+        status: 0,
+        stdout: "",
+        stderr: "",
+      });
       const manager = createSystemdManager();
       const ctx = createLinuxContext();
 
       const result = manager.reconcile(ctx);
 
-      expect(result).toBeDefined();
-      expect(Array.isArray(result.actions)).toBe(true);
-      expect(typeof result.warning === "string" || result.warning === undefined).toBe(true);
+      expect(result).toEqual({
+        actions: ["daemon-reload", "enable telepi.service", "restart telepi.service"],
+        warning: undefined,
+      });
+      expect(vi.mocked(spawnSync).mock.calls).toEqual([
+        ["systemctl", ["--user"], expect.any(Object)],
+        ["systemctl", ["--user", "daemon-reload"], expect.any(Object)],
+        ["systemctl", ["--user", "enable", "telepi.service"], expect.any(Object)],
+        ["systemctl", ["--user", "restart", "telepi.service"], expect.any(Object)],
+      ]);
+    });
+
+    it("returns a warning without further commands when systemctl is unavailable", () => {
+      const manager = createSystemdManager();
+      const ctx = createLinuxContext();
+
+      const result = manager.reconcile(ctx);
+
+      expect(result).toEqual({
+        actions: [],
+        warning: "systemctl --user is not available. " +
+          "Ensure you have a user systemd session (loginctl enable-linger or run under a desktop session).",
+      });
+      expect(spawnSync).toHaveBeenCalledExactlyOnceWith(
+        "systemctl", ["--user"], expect.any(Object),
+      );
     });
   });
 
@@ -225,18 +272,27 @@ describe("SystemdManager", () => {
       expect(status.detail).toBe("not installed");
     });
 
-    it("returns installed-but-not-loaded when unit file exists but systemctl fails or is unavailable", () => {
+    it("returns installed-but-not-loaded when the unit file exists but systemctl fails", () => {
       const manager = createSystemdManager();
       const ctx = createLinuxContext();
       writeSystemdUnit(ctx);
 
       const status = manager.getStatus(ctx);
 
-      // unit exists on disk
-      expect(status.unitExists).toBe(true);
-      // status depends on systemctl availability on the test runner
-      // Expected: not loaded (service not installed in real systemd)
-      expect(typeof status.detail).toBe("string");
+      expect(status).toEqual({
+        unitExists: true,
+        plistExists: false,
+        loaded: false,
+        state: undefined,
+        pid: undefined,
+        detail: "installed but not loaded",
+        error: undefined,
+      });
+      expect(spawnSync).toHaveBeenCalledExactlyOnceWith(
+        "systemctl",
+        ["--user", "show", "telepi.service", "--property=ActiveState,MainPID"],
+        expect.any(Object),
+      );
     });
 
     it("returns ServiceStatus shape with all required fields", () => {
