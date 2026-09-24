@@ -1,3 +1,4 @@
+import { spawnSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -27,6 +28,7 @@ describe("SystemdManager", () => {
   let packageRoot: string;
 
   beforeEach(() => {
+    vi.mocked(spawnSync).mockReset();
     tempDir = mkdtempSync(path.join(tmpdir(), "telepi-systemd-"));
     homeDir = path.join(tempDir, "home");
     packageRoot = path.join(tempDir, "package");
@@ -198,15 +200,46 @@ describe("SystemdManager", () => {
   });
 
   describe("reconcile", () => {
-    it("returns a result with actions or warning from reconcile", () => {
+    it("reloads, enables, and restarts the service in order when systemctl succeeds", () => {
+      vi.mocked(spawnSync).mockReturnValue({
+        pid: 123,
+        output: [],
+        signal: null,
+        status: 0,
+        stdout: "",
+        stderr: "",
+      });
       const manager = createSystemdManager();
       const ctx = createLinuxContext();
 
       const result = manager.reconcile(ctx);
 
-      expect(result).toBeDefined();
-      expect(Array.isArray(result.actions)).toBe(true);
-      expect(typeof result.warning === "string" || result.warning === undefined).toBe(true);
+      expect(result).toEqual({
+        actions: ["daemon-reload", "enable telepi.service", "restart telepi.service"],
+        warning: undefined,
+      });
+      expect(vi.mocked(spawnSync).mock.calls).toEqual([
+        ["systemctl", ["--user"], expect.any(Object)],
+        ["systemctl", ["--user", "daemon-reload"], expect.any(Object)],
+        ["systemctl", ["--user", "enable", "telepi.service"], expect.any(Object)],
+        ["systemctl", ["--user", "restart", "telepi.service"], expect.any(Object)],
+      ]);
+    });
+
+    it("returns a warning without further commands when systemctl is unavailable", () => {
+      const manager = createSystemdManager();
+      const ctx = createLinuxContext();
+
+      const result = manager.reconcile(ctx);
+
+      expect(result).toEqual({
+        actions: [],
+        warning: "systemctl --user is not available. " +
+          "Ensure you have a user systemd session (loginctl enable-linger or run under a desktop session).",
+      });
+      expect(spawnSync).toHaveBeenCalledExactlyOnceWith(
+        "systemctl", ["--user"], expect.any(Object),
+      );
     });
   });
 
@@ -239,18 +272,27 @@ describe("SystemdManager", () => {
       expect(status.detail).toBe("not installed");
     });
 
-    it("returns installed-but-not-loaded when unit file exists but systemctl fails or is unavailable", () => {
+    it("returns installed-but-not-loaded when the unit file exists but systemctl fails", () => {
       const manager = createSystemdManager();
       const ctx = createLinuxContext();
       writeSystemdUnit(ctx);
 
       const status = manager.getStatus(ctx);
 
-      // unit exists on disk
-      expect(status.unitExists).toBe(true);
-      // status depends on systemctl availability on the test runner
-      // Expected: not loaded (service not installed in real systemd)
-      expect(typeof status.detail).toBe("string");
+      expect(status).toEqual({
+        unitExists: true,
+        plistExists: false,
+        loaded: false,
+        state: undefined,
+        pid: undefined,
+        detail: "installed but not loaded",
+        error: undefined,
+      });
+      expect(spawnSync).toHaveBeenCalledExactlyOnceWith(
+        "systemctl",
+        ["--user", "show", "telepi.service", "--property=ActiveState,MainPID"],
+        expect.any(Object),
+      );
     });
 
     it("returns ServiceStatus shape with all required fields", () => {
