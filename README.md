@@ -311,7 +311,7 @@ Set a custom full transcription endpoint when your provider accepts the OpenAI-c
 |----------|---------|---------|
 | `TELEPI_TRANSCRIPTION_API_KEY` | `OPENAI_API_KEY` | Credential sent to the provider |
 | `TELEPI_TRANSCRIPTION_URL` | OpenAI's `/v1/audio/transcriptions` endpoint | Full HTTP(S) endpoint |
-| `TELEPI_TRANSCRIPTION_MODEL` | `whisper-1` | Value for the multipart `model` field |
+| `TELEPI_TRANSCRIPTION_MODEL` | `gpt-transcribe` | Value for the multipart `model` field |
 | `TELEPI_TRANSCRIPTION_AUTH_HEADER` | unset | Custom credential-header name; unset uses `Authorization: Bearer` |
 | `TELEPI_TRANSCRIPTION_PROMPT` | unset | Optional recognition context for project-specific names and terms |
 
