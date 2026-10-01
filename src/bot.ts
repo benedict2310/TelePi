@@ -4,6 +4,7 @@ import type { ImageContent } from "@earendil-works/pi-ai";
 import type { SlashCommandInfo } from "@earendil-works/pi-coding-agent";
 import { autoRetry } from "@grammyjs/auto-retry";
 import { Bot, type Context, InlineKeyboard } from "grammy";
+import type { ReactionTypeEmoji } from "grammy/types";
 import {
 	COMMAND_MENU_CALLBACK_PREFIX,
 	isStaleCallbackQueryError,
@@ -502,6 +503,35 @@ export function createBot(
 
 		await next();
 	});
+
+	const reactToIncomingMessage = (ctx: Context): void => {
+		if (!config.reactionOnReceipt) {
+			return;
+		}
+
+		const chatId = ctx.chat?.id;
+		const messageId = ctx.message?.message_id;
+		if (chatId === undefined || messageId === undefined) {
+			return;
+		}
+
+		const emojis = config.reactionEmojis;
+		const emoji = emojis[Math.floor(Math.random() * emojis.length)];
+		if (emoji === undefined) {
+			return;
+		}
+
+		void bot.api
+			.setMessageReaction(chatId, messageId, [
+				{ type: "emoji", emoji: emoji as ReactionTypeEmoji["emoji"] },
+			])
+			.catch((error: unknown) => {
+				console.error(
+					"Failed to react to incoming message:",
+					formatError(error),
+				);
+			});
+	};
 
 	const chatTaskRunner = createChatTaskRunner({
 		beginProcessing: (target, promptText) =>
@@ -1428,6 +1458,8 @@ export function createBot(
 			return;
 		}
 
+		reactToIncomingMessage(ctx);
+
 		const contextKey = getContextKey(target);
 		const normalizedSlashCommand = normalizeSlashCommand(
 			userText,
@@ -1508,6 +1540,8 @@ export function createBot(
 		if (!target) {
 			return;
 		}
+
+		reactToIncomingMessage(ctx);
 
 		if (isBusy(target)) {
 			await sendBusyReply(ctx);
@@ -1599,6 +1633,8 @@ export function createBot(
 		if (!target) {
 			return;
 		}
+
+		reactToIncomingMessage(ctx);
 
 		const contextKey = getContextKey(target);
 		if (isBusy(target)) {

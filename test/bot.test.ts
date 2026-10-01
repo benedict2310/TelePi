@@ -108,6 +108,8 @@ function createConfig(overrides: Partial<TelePiConfig> = {}): TelePiConfig {
 		piSessionPath: undefined,
 		piModel: undefined,
 		toolVerbosity: "summary",
+		reactionOnReceipt: false,
+		reactionEmojis: ["👀"],
 		promptInboxDir: undefined,
 		promptInboxIntervalMs: 60000,
 		...overrides,
@@ -548,6 +550,7 @@ function setupBot(options: SetupOptions = {}) {
 		editMessageText: vi.fn().mockResolvedValue(true),
 		editMessageReplyMarkup: vi.fn().mockResolvedValue(true),
 		sendChatAction: vi.fn().mockResolvedValue(true),
+		setMessageReaction: vi.fn().mockResolvedValue(true),
 		setMyCommands: vi.fn().mockResolvedValue(true),
 		answerCallbackQuery: vi.fn().mockResolvedValue(true),
 		getFile: vi.fn().mockImplementation(async (fileId: string) => ({
@@ -588,6 +591,13 @@ function setupBot(options: SetupOptions = {}) {
 					payload.chat_id,
 					payload.action,
 					payload.message_thread_id,
+				);
+				return { ok: true, result: true };
+			case "setMessageReaction":
+				await api.setMessageReaction(
+					payload.chat_id,
+					payload.message_id,
+					payload.reaction,
 				);
 				return { ok: true, result: true };
 			case "setMyCommands": {
@@ -4365,6 +4375,103 @@ describe("createBot", () => {
 
 		expect(api.getFile).not.toHaveBeenCalledWith("document-text-id");
 		expect(pi.service.prompt).toHaveBeenCalledTimes(1);
+	});
+
+	it("reacts to an incoming text message when reactionOnReceipt is enabled", async () => {
+		const { bot, api } = setupBot({
+			configOverrides: { reactionOnReceipt: true },
+		});
+
+		await bot.handleUpdate(createTestUpdate({ message: { text: "hello" } }));
+		await new Promise((resolve) => setTimeout(resolve, 0));
+
+		expect(api.setMessageReaction).toHaveBeenCalledWith(
+			ALLOWED_CHAT_ID,
+			1,
+			[{ type: "emoji", emoji: "👀" }],
+		);
+	});
+
+	it("reacts to incoming photo and voice messages when reactionOnReceipt is enabled", async () => {
+		const { bot, pi, api } = setupBot({
+			configOverrides: { reactionOnReceipt: true },
+		});
+		const promptMock = pi.service.prompt as ReturnType<typeof vi.fn>;
+		promptMock.mockImplementation(async () => {
+			pi.emitTextDelta("Response");
+			pi.emitAgentEnd();
+		});
+
+		await bot.handleUpdate(createPhotoUpdate());
+		await bot.handleUpdate(createVoiceUpdate());
+		await new Promise((resolve) => setTimeout(resolve, 0));
+
+		expect(api.setMessageReaction).toHaveBeenCalledTimes(2);
+		expect(api.setMessageReaction).toHaveBeenCalledWith(
+			ALLOWED_CHAT_ID,
+			1,
+			[{ type: "emoji", emoji: "👀" }],
+		);
+	});
+
+	it("reacts with a configured emoji picked at random", async () => {
+		const randomSpy = vi.spyOn(Math, "random").mockReturnValue(0.99);
+		const { bot, api } = setupBot({
+			configOverrides: {
+				reactionOnReceipt: true,
+				reactionEmojis: ["👍", "🔥", "🎉"],
+			},
+		});
+
+		await bot.handleUpdate(createTestUpdate({ message: { text: "hello" } }));
+		await new Promise((resolve) => setTimeout(resolve, 0));
+		randomSpy.mockRestore();
+
+		expect(api.setMessageReaction).toHaveBeenCalledWith(
+			ALLOWED_CHAT_ID,
+			1,
+			[{ type: "emoji", emoji: "🎉" }],
+		);
+	});
+
+	it("does not react when reactionOnReceipt is disabled", async () => {
+		const { bot, api } = setupBot();
+
+		await bot.handleUpdate(createTestUpdate({ message: { text: "hello" } }));
+		await new Promise((resolve) => setTimeout(resolve, 0));
+
+		expect(api.setMessageReaction).not.toHaveBeenCalled();
+	});
+
+	it("keeps processing prompts when the reaction request fails", async () => {
+		const { bot, pi, api } = setupBot({
+			configOverrides: { reactionOnReceipt: true },
+		});
+		api.setMessageReaction.mockRejectedValue(new Error("reaction rejected"));
+		const errorSpy = vi
+			.spyOn(console, "error")
+			.mockImplementation(() => undefined);
+		const promptMock = pi.service.prompt as ReturnType<typeof vi.fn>;
+		promptMock.mockImplementation(async () => {
+			pi.emitTextDelta("Response after failed reaction");
+			pi.emitAgentEnd();
+		});
+
+		await bot.handleUpdate(createTestUpdate({ message: { text: "hello" } }));
+		await new Promise((resolve) => setTimeout(resolve, 0));
+
+		expect(api.setMessageReaction).toHaveBeenCalledTimes(1);
+		expect(pi.service.prompt).toHaveBeenCalledWith("hello");
+		expect(
+			api.sendMessage.mock.calls.some((call) =>
+				String(call[1]).includes("Response after failed reaction"),
+			),
+		).toBe(true);
+		expect(errorSpy).toHaveBeenCalledWith(
+			"Failed to react to incoming message:",
+			expect.stringContaining("reaction rejected"),
+		);
+		errorSpy.mockRestore();
 	});
 
 	it("blocks voice messages while processing and reports transcription failures", async () => {
