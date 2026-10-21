@@ -66,7 +66,7 @@ const TRANSCRIPTION_API_KEY_ENV = "TELEPI_TRANSCRIPTION_API_KEY";
 const TRANSCRIPTION_AUTH_HEADER_ENV = "TELEPI_TRANSCRIPTION_AUTH_HEADER";
 const TRANSCRIPTION_PROMPT_ENV = "TELEPI_TRANSCRIPTION_PROMPT";
 const DEFAULT_TRANSCRIPTION_URL = "https://api.openai.com/v1/audio/transcriptions";
-const DEFAULT_TRANSCRIPTION_MODEL = "whisper-1";
+const DEFAULT_TRANSCRIPTION_MODEL = "gpt-transcribe";
 const FFMPEG_INSTALL_MESSAGE = `ffmpeg not found. Install it with: ${getPlatformInstallHint("ffmpeg")}`;
 const NO_BACKEND_ERROR = `Voice messages require a transcription backend.
 
