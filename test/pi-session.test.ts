@@ -450,6 +450,7 @@ const mockState = vi.hoisted(() => {
 			getEnabledModels: vi.fn().mockReturnValue(undefined),
 			getDefaultProvider: vi.fn().mockReturnValue(undefined),
 			getDefaultModel: vi.fn().mockReturnValue(undefined),
+			setDefaultModelAndProvider: vi.fn(),
 			drainErrors: vi.fn().mockReturnValue([]),
 		})),
 	};
@@ -2627,5 +2628,77 @@ describe("PiSessionService", () => {
 			"Session removed during initialization",
 		);
 		expect(registry.get({ chatId: 11, messageThreadId: 4 })).toBeUndefined();
+	});
+
+	it("persists the selected model as the Pi default for new sessions and restarts", async () => {
+		const service = await PiSessionService.create(createConfig());
+		const runtime = mockState.createdRuntimes[0]?.runtime;
+		const settingsManager = runtime.services.settingsManager;
+
+		await expect(service.setModel("openai", "gpt-4o")).resolves.toBe(
+			"openai/gpt-4o",
+		);
+		expect(settingsManager.setDefaultModelAndProvider).toHaveBeenCalledWith(
+			"openai",
+			"gpt-4o",
+		);
+	});
+
+	it("supports provider filtering for the full authenticated model set", async () => {
+		const { filterModelsByQuery } = await import("../src/pi-session.js");
+		const catalog = [
+			{ provider: "openai-codex", id: "gpt-6-luna", name: "GPT-6 Luna" },
+			{ provider: "openai", id: "gpt-6-luna", name: "GPT-6 Luna" },
+			{
+				provider: "opencode-go",
+				id: "muse-spark-1.3-contributor",
+				name: "Muse Spark 1.3 Contributor",
+			},
+			{ provider: "opencode", id: "muse-spark-1.3", name: "Muse Spark 1.3" },
+			{ provider: "xai", id: "grok-4.7", name: "Grok 4.7" },
+		];
+		expect(
+			filterModelsByQuery(catalog, "opencode-go").map((m) => m.id),
+		).toEqual(["muse-spark-1.3-contributor"]);
+		expect(
+			filterModelsByQuery(catalog, "muse-spark").map(
+				(m) => `${m.provider}/${m.id}`,
+			),
+		).toEqual([
+			"opencode-go/muse-spark-1.3-contributor",
+			"opencode/muse-spark-1.3",
+		]);
+		expect(filterModelsByQuery(catalog, "OPENAI-CODEX")).toHaveLength(1);
+		expect(filterModelsByQuery(catalog, undefined)).toHaveLength(catalog.length);
+	});
+
+	it("lists models filtered by provider through the service", async () => {
+		// Default mock catalog is anthropic/claude-sonnet-4-5 + openai/gpt-4o.
+		// Filtering exercises the same code path used for the full Pi 1.4.0
+		// authenticated set (openai-codex, openai, opencode, opencode-go, xai).
+		const service = await PiSessionService.create(createConfig());
+
+		await expect(service.listModels(false, "openai")).resolves.toEqual([
+			{
+				provider: "openai",
+				id: "gpt-4o",
+				name: "GPT-4o",
+				current: false,
+				thinkingLevel: undefined,
+			},
+		]);
+		await expect(service.listModels(false, "anthropic")).resolves.toEqual([
+			{
+				provider: "anthropic",
+				id: "claude-sonnet-4-5",
+				name: "Claude Sonnet",
+				current: true,
+				thinkingLevel: undefined,
+			},
+		]);
+		// Full provider/id reference still resolves for switching.
+		await expect(service.setModel("openai", "gpt-4o")).resolves.toBe(
+			"openai/gpt-4o",
+		);
 	});
 });

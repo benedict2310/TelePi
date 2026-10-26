@@ -195,7 +195,7 @@ node dist/cli.js start
 | `/session` | Show current session details (ID, file, workspace, model) |
 | `/sessions` | List all sessions across all workspaces with tap-to-switch buttons |
 | `/sessions <path\|id>` | Switch directly to a specific session file or session ID/prefix |
-| `/model` | Pick a different AI model from an inline keyboard |
+| `/model` | Pick a different AI model from an inline keyboard. Shows authenticated provider counts (e.g. `Providers: openai-codex (7) • opencode (83) • opencode-go (33) • xai (4)`) matching `pi --list-models`. Use `/model <provider or text>` to filter (e.g. `/model opencode-go`, `/model openai-codex`, `/model muse-spark`). Selection is saved as the Pi default so it survives `/new` sessions and restarts. `Show all models` is preserved for scoped views. |
 | `/tree` | View the session entry tree; navigate with inline buttons |
 | `/branch <id>` | Navigate to a specific entry ID (with confirmation) |
 | `/label [args]` | Add or clear labels on entries for easy reference |

@@ -154,6 +154,7 @@ export function createBot(
 	const pendingModelPicks = new Map<ContextKey, PiSessionModelOption[]>();
 	const pendingModelButtons = new Map<ContextKey, KeyboardItem[]>();
 	const pendingModelExtraButtons = new Map<ContextKey, KeyboardItem[]>();
+	const pendingModelFilters = new Map<ContextKey, string | undefined>();
 	const pendingThinkingPicks = new Map<ContextKey, PendingThinkingPick>();
 	const pendingTreeNavs = new Map<ContextKey, string>();
 	const pendingTreeViews = new Map<ContextKey, PendingTreeView>();
@@ -342,6 +343,7 @@ export function createBot(
 		pendingModelPicks.delete(contextKey);
 		pendingModelButtons.delete(contextKey);
 		pendingModelExtraButtons.delete(contextKey);
+		pendingModelFilters.delete(contextKey);
 		pendingThinkingPicks.delete(contextKey);
 		pendingTreeNavs.delete(contextKey);
 		pendingTreeViews.delete(contextKey);
@@ -645,6 +647,7 @@ export function createBot(
 		pendingModelPicks,
 		pendingModelButtons,
 		pendingModelExtraButtons,
+		pendingModelFilters,
 		buildKeyboard,
 		safeReply,
 		safeEditMessage: (target, messageId, text, options) =>
@@ -1339,9 +1342,11 @@ export function createBot(
 		}
 
 		await ctx.answerCallbackQuery({ text: "Loading all models..." });
+		const filter = pendingModelFilters.get(contextKey);
 		await renderModelPicker(ctx, target, piSession, {
 			showAll: true,
 			messageId,
+			...(filter ? { filter } : {}),
 		});
 	});
 
@@ -1373,6 +1378,7 @@ export function createBot(
 		pendingModelPicks.delete(contextKey);
 		pendingModelButtons.delete(contextKey);
 		pendingModelExtraButtons.delete(contextKey);
+		pendingModelFilters.delete(contextKey);
 
 		chatState.beginSwitching(target);
 		try {

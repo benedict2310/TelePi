@@ -875,7 +875,7 @@ export class PiSessionService {
 		return { info: this.getInfo(), created: !result.cancelled };
 	}
 
-	async listModels(showAll = false): Promise<PiSessionModelOption[]> {
+	async listModels(showAll = false, filter?: string): Promise<PiSessionModelOption[]> {
 		await this.getHandle().runtime.services.modelRuntime.getAvailable();
 		const session = this.getSession();
 		const currentModel = session.model;
@@ -889,7 +889,7 @@ export class PiSessionService {
 				scoped.thinkingLevel,
 			]),
 		);
-		const available =
+		const base =
 			showAll || session.scopedModels.length === 0
 				? availableModels
 				: session.scopedModels
@@ -897,6 +897,7 @@ export class PiSessionService {
 						.filter((model) =>
 							availableKeys.has(`${model.provider}/${model.id}`),
 						);
+		const available = filterModelsByQuery(base, filter);
 
 		return available.map((model) => ({
 			provider: model.provider,
@@ -944,6 +945,19 @@ export class PiSessionService {
 		await session.setModel(model);
 		if (thinkingLevel !== undefined) {
 			session.setThinkingLevel(thinkingLevel);
+		}
+		// Persist the selection as the default so it survives /new sessions
+		// and TelePi restarts. Best-effort: a failure to write settings must
+		// not break the in-memory switch that already succeeded.
+		try {
+			this.getHandle().runtime.services.settingsManager.setDefaultModelAndProvider(
+				model.provider,
+				model.id,
+			);
+		} catch (error) {
+			console.warn(
+				`Warning: could not persist default model ${model.provider}/${model.id}: ${error instanceof Error ? error.message : String(error)}`,
+			);
 		}
 		return `${model.provider}/${model.id}`;
 	}
@@ -1687,6 +1701,41 @@ function createSessionManager(
 	}
 
 	return SessionManager.create(workspace);
+}
+
+export function filterModelsByQuery<T extends { provider: string; id: string; name?: string }>(
+	models: T[],
+	filter?: string,
+): T[] {
+	const query = filter?.trim().toLowerCase();
+	if (!query) {
+		return models;
+	}
+	return models.filter((model) => {
+		const provider = model.provider.toLowerCase();
+		const id = model.id.toLowerCase();
+		const name = (model.name ?? "").toLowerCase();
+		const full = `${provider}/${id}`;
+		return (
+			full.includes(query) ||
+			provider.includes(query) ||
+			provider === query ||
+			id.includes(query) ||
+			name.includes(query)
+		);
+	});
+}
+
+export function countModelsByProvider<T extends { provider: string }>(
+	models: T[],
+): Array<{ provider: string; count: number }> {
+	const counts = new Map<string, number>();
+	for (const model of models) {
+		counts.set(model.provider, (counts.get(model.provider) ?? 0) + 1);
+	}
+	return [...counts.entries()]
+		.map(([provider, count]) => ({ provider, count }))
+		.sort((a, b) => a.provider.localeCompare(b.provider));
 }
 
 function resolveModelOverride(
